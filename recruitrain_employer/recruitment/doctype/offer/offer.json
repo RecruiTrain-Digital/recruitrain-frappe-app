@@ -1,0 +1,200 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "autoname": "OFF-.#####",
+ "creation": "2026-07-28 20:18:56.233658",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "offer_information_section",
+  "offer_name",
+  "candidate",
+  "job_application",
+  "job_opening",
+  "company",
+  "compensation_section",
+  "offered_salary",
+  "currency",
+  "joining_date",
+  "probation_period_months",
+  "offer_details_section",
+  "offer_date",
+  "expiry_date",
+  "employment_type",
+  "reporting_manager",
+  "candidate_response_section",
+  "offer_status",
+  "response_date",
+  "candidate_remarks",
+  "attachments_section",
+  "offer_letter",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "offer_information_section",
+   "fieldtype": "Section Break",
+   "label": "Offer Information"
+  },
+  {
+   "fieldname": "offer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Offer Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "candidate",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Candidate",
+   "options": "Candidate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "job_application",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Job Application",
+   "options": "Job Application",
+   "reqd": 1
+  },
+  {
+   "fieldname": "job_opening",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Job Opening",
+   "options": "Job Opening",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "compensation_section",
+   "fieldtype": "Section Break",
+   "label": "Compensation"
+  },
+  {
+   "fieldname": "offered_salary",
+   "fieldtype": "Currency",
+   "label": "Offered Salary",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "joining_date",
+   "fieldtype": "Date",
+   "label": "Joining Date"
+  },
+  {
+   "fieldname": "probation_period_months",
+   "fieldtype": "Int",
+   "label": "Probation Period (Months)"
+  },
+  {
+   "fieldname": "offer_details_section",
+   "fieldtype": "Section Break",
+   "label": "Offer Details"
+  },
+  {
+   "fieldname": "offer_date",
+   "fieldtype": "Date",
+   "label": "Offer Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date"
+  },
+  {
+   "fieldname": "employment_type",
+   "fieldtype": "Link",
+   "label": "Employment Type",
+   "options": "Employment Type"
+  },
+  {
+   "fieldname": "reporting_manager",
+   "fieldtype": "Link",
+   "label": "Reporting Manager",
+   "options": "User"
+  },
+  {
+   "fieldname": "candidate_response_section",
+   "fieldtype": "Section Break",
+   "label": "Candidate Response"
+  },
+  {
+   "fieldname": "offer_status",
+   "fieldtype": "Select",
+   "label": "Offer Status",
+   "options": "Draft\nSent\nAccepted\nRejected\nExpired\nWithdrawn",
+   "reqd": 1
+  },
+  {
+   "fieldname": "response_date",
+   "fieldtype": "Date",
+   "label": "Response Date"
+  },
+  {
+   "fieldname": "candidate_remarks",
+   "fieldtype": "Small Text",
+   "label": "Candidate Remarks"
+  },
+  {
+   "fieldname": "attachments_section",
+   "fieldtype": "Section Break",
+   "label": "Attachments"
+  },
+  {
+   "fieldname": "offer_letter",
+   "fieldtype": "Attach",
+   "label": "Offer Letter"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-28 20:26:11.251564",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Offer",
+ "naming_rule": "Autoincrement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

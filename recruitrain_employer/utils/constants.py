@@ -1,0 +1,301 @@
+# Copyright (c) 2024, RecruiTrain and contributors
+# For license information, please see license.txt
+
+"""
+recruitrain_employer.utils.constants
+=======================================
+
+Application-Wide Constants for the RecruiTrain Employer ATS.
+
+Centralising all magic strings, numeric thresholds, and allowed-value lists
+in this module makes the codebase easier to maintain and reduces the risk of
+typos causing silent bugs.
+
+Sections
+--------
+1.  DocType Names
+2.  Employer Roles
+3.  Job Opening Statuses
+4.  Application Pipeline Stages
+5.  Interview Constants
+6.  Offer Constants
+7.  File Upload Limits
+8.  Pagination Defaults
+9.  Required Fields by DocType
+10. Miscellaneous
+"""
+
+# ---------------------------------------------------------------------------
+# 1. DocType Names
+# ---------------------------------------------------------------------------
+
+DOCTYPE_CANDIDATE = "Candidate"
+DOCTYPE_CANDIDATE_EDUCATION = "Candidate Education"
+DOCTYPE_CANDIDATE_EXPERIENCE = "Candidate Experience"
+DOCTYPE_CANDIDATE_SKILL = "Candidate Skill"
+DOCTYPE_CANDIDATE_LANGUAGE = "Candidate Language"
+DOCTYPE_CANDIDATE_CERTIFICATION = "Candidate Certification"
+DOCTYPE_CANDIDATE_DOCUMENT = "Candidate Document"
+
+DOCTYPE_COMPANY = "Company"
+DOCTYPE_EMPLOYER_USER = "Employer User"
+
+DOCTYPE_JOB_OPENING = "Job Opening"
+DOCTYPE_JOB_APPLICATION = "Job Application"
+
+DOCTYPE_INTERVIEW = "Interview"
+DOCTYPE_INTERVIEW_FEEDBACK = "Interview Feedback"
+
+DOCTYPE_OFFER = "Offer"
+
+DOCTYPE_ACTIVITY_LOG = "Activity Log"
+DOCTYPE_NOTIFICATION = "Notification"
+
+# Master DocTypes
+DOCTYPE_SKILL = "Skill"
+DOCTYPE_PROFESSION = "Profession"
+DOCTYPE_EMPLOYMENT_TYPE = "Employment Type"
+DOCTYPE_DEPARTMENT = "Department"
+DOCTYPE_INDUSTRY = "Industry"
+
+# ---------------------------------------------------------------------------
+# 2. Employer Roles
+# ---------------------------------------------------------------------------
+
+ROLE_ADMIN = "Employer Admin"
+ROLE_HIRING_MANAGER = "Hiring Manager"
+ROLE_RECRUITER = "Recruiter"
+ROLE_INTERVIEWER = "Interviewer"
+
+#: Ordered list of employer roles from highest to lowest privilege.
+EMPLOYER_ROLES = [
+    ROLE_ADMIN,
+    ROLE_HIRING_MANAGER,
+    ROLE_RECRUITER,
+    ROLE_INTERVIEWER,
+]
+
+# ---------------------------------------------------------------------------
+# 3. Job Opening Statuses
+# ---------------------------------------------------------------------------
+
+JOB_STATUS_DRAFT = "Draft"
+JOB_STATUS_OPEN = "Open"
+JOB_STATUS_ON_HOLD = "On Hold"
+JOB_STATUS_CLOSED = "Closed"
+
+ALLOWED_JOB_STATUSES = [
+    JOB_STATUS_DRAFT,
+    JOB_STATUS_OPEN,
+    JOB_STATUS_ON_HOLD,
+    JOB_STATUS_CLOSED,
+]
+
+# ---------------------------------------------------------------------------
+# 4. Application Pipeline Stages
+# ---------------------------------------------------------------------------
+
+APPLICATION_STAGE_APPLIED = "Applied"
+APPLICATION_STAGE_SCREENING = "Screening"
+APPLICATION_STAGE_INTERVIEW = "Interview"
+APPLICATION_STAGE_ASSESSMENT = "Assessment"
+APPLICATION_STAGE_OFFER = "Offer"
+APPLICATION_STAGE_HIRED = "Hired"
+APPLICATION_STAGE_REJECTED = "Rejected"
+APPLICATION_STAGE_WITHDRAWN = "Withdrawn"
+
+#: Ordered pipeline stages (terminal stages at the end).
+APPLICATION_STAGES = [
+    APPLICATION_STAGE_APPLIED,
+    APPLICATION_STAGE_SCREENING,
+    APPLICATION_STAGE_INTERVIEW,
+    APPLICATION_STAGE_ASSESSMENT,
+    APPLICATION_STAGE_OFFER,
+    APPLICATION_STAGE_HIRED,
+    APPLICATION_STAGE_REJECTED,
+    APPLICATION_STAGE_WITHDRAWN,
+]
+
+#: Terminal stages from which no further transitions are allowed.
+APPLICATION_TERMINAL_STAGES = [
+    APPLICATION_STAGE_HIRED,
+    APPLICATION_STAGE_REJECTED,
+    APPLICATION_STAGE_WITHDRAWN,
+]
+
+# ---------------------------------------------------------------------------
+# 5. Interview Constants
+# ---------------------------------------------------------------------------
+
+INTERVIEW_TYPE_PHONE = "Phone Screen"
+INTERVIEW_TYPE_VIDEO = "Video Call"
+INTERVIEW_TYPE_TECHNICAL = "Technical"
+INTERVIEW_TYPE_HR = "HR"
+INTERVIEW_TYPE_PANEL = "Panel"
+INTERVIEW_TYPE_ONSITE = "Onsite"
+
+INTERVIEW_TYPES = [
+    INTERVIEW_TYPE_PHONE,
+    INTERVIEW_TYPE_VIDEO,
+    INTERVIEW_TYPE_TECHNICAL,
+    INTERVIEW_TYPE_HR,
+    INTERVIEW_TYPE_PANEL,
+    INTERVIEW_TYPE_ONSITE,
+]
+
+INTERVIEW_STATUS_SCHEDULED = "Scheduled"
+INTERVIEW_STATUS_COMPLETED = "Completed"
+INTERVIEW_STATUS_CANCELLED = "Cancelled"
+INTERVIEW_STATUS_RESCHEDULED = "Rescheduled"
+
+FEEDBACK_RATING_MIN = 1
+FEEDBACK_RATING_MAX = 5
+
+FEEDBACK_RECOMMENDATION_HIRE = "Hire"
+FEEDBACK_RECOMMENDATION_NO_HIRE = "No Hire"
+FEEDBACK_RECOMMENDATION_STRONG_HIRE = "Strong Hire"
+FEEDBACK_RECOMMENDATION_HOLD = "Hold"
+
+FEEDBACK_RECOMMENDATION_VALUES = [
+    FEEDBACK_RECOMMENDATION_STRONG_HIRE,
+    FEEDBACK_RECOMMENDATION_HIRE,
+    FEEDBACK_RECOMMENDATION_HOLD,
+    FEEDBACK_RECOMMENDATION_NO_HIRE,
+]
+
+#: Required fields for scheduling a new Interview.
+INTERVIEW_REQUIRED_FIELDS = [
+    "application",
+    "interview_type",
+    "scheduled_on",
+    "interviewers",
+]
+
+# ---------------------------------------------------------------------------
+# 6. Offer Constants
+# ---------------------------------------------------------------------------
+
+OFFER_STATUS_DRAFT = "Draft"
+OFFER_STATUS_SENT = "Sent"
+OFFER_STATUS_ACCEPTED = "Accepted"
+OFFER_STATUS_REJECTED = "Rejected"
+OFFER_STATUS_EXPIRED = "Expired"
+OFFER_STATUS_REVOKED = "Revoked"
+
+ALLOWED_OFFER_STATUSES = [
+    OFFER_STATUS_DRAFT,
+    OFFER_STATUS_SENT,
+    OFFER_STATUS_ACCEPTED,
+    OFFER_STATUS_REJECTED,
+    OFFER_STATUS_EXPIRED,
+    OFFER_STATUS_REVOKED,
+]
+
+#: ISO 4217 currency codes supported by the platform.
+SUPPORTED_CURRENCIES = [
+    "EUR",
+    "USD",
+    "GBP",
+    "CHF",
+    "SEK",
+    "NOK",
+    "DKK",
+    "PLN",
+    "CZK",
+]
+
+#: Required fields for creating an Offer.
+OFFER_REQUIRED_FIELDS = [
+    "application",
+    "position",
+    "salary",
+    "currency",
+    "start_date",
+]
+
+# ---------------------------------------------------------------------------
+# 7. File Upload Limits
+# ---------------------------------------------------------------------------
+
+#: Maximum allowed file size for candidate documents in megabytes.
+MAX_FILE_SIZE_MB = 10
+
+#: Maximum allowed size for company logos in megabytes.
+MAX_LOGO_SIZE_MB = 2
+
+#: Allowed MIME types for candidate resume / document uploads.
+ALLOWED_DOCUMENT_TYPES = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]
+
+#: Allowed MIME types for image uploads (logos, profile photos).
+ALLOWED_IMAGE_TYPES = [
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/svg+xml",
+    "image/webp",
+]
+
+# ---------------------------------------------------------------------------
+# 8. Pagination Defaults
+# ---------------------------------------------------------------------------
+
+DEFAULT_PAGE = 1
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
+#: Maximum number of records allowed in a single bulk operation.
+BULK_OP_MAX_SIZE = 200
+
+#: Threshold above which bulk operations are offloaded to a background job.
+BULK_OP_THRESHOLD = 50
+
+# ---------------------------------------------------------------------------
+# 9. Required Fields by DocType
+# ---------------------------------------------------------------------------
+
+#: Minimum required fields for creating a Candidate record.
+CANDIDATE_REQUIRED_FIELDS = [
+    "first_name",
+    "last_name",
+    "email",
+]
+
+#: Minimum required fields for creating a Company record.
+COMPANY_REQUIRED_FIELDS = [
+    "company_name",
+    "industry",
+]
+
+#: Minimum required fields for creating a Job Opening record.
+JOB_REQUIRED_FIELDS = [
+    "job_title",
+    "company",
+    "employment_type",
+    "description",
+]
+
+#: Minimum required fields for creating a Job Application record.
+APPLICATION_REQUIRED_FIELDS = [
+    "job_opening",
+    "candidate",
+]
+
+# ---------------------------------------------------------------------------
+# 10. Miscellaneous
+# ---------------------------------------------------------------------------
+
+#: Token expiry duration for password reset links (in hours).
+PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 24
+
+#: Token expiry duration for offer response links (in hours).
+OFFER_TOKEN_EXPIRY_HOURS = 168  # 7 days
+
+#: Application name for logging and metadata purposes.
+APP_NAME = "recruitrain_employer"
+
+#: Minimum password length enforced during registration and password change.
+MIN_PASSWORD_LENGTH = 8

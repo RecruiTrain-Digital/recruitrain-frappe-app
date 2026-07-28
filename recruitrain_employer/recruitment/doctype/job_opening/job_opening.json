@@ -1,0 +1,288 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:job_code",
+ "creation": "2026-07-28 18:53:45.028835",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "job_details_section",
+  "job_code",
+  "job_title",
+  "company",
+  "department",
+  "profession",
+  "employment_type",
+  "industry",
+  "hiring_information_section",
+  "number_of_openings",
+  "hiring_manager",
+  "recruiter",
+  "target_joining_date",
+  "experience_section",
+  "minimum_experience",
+  "maximum_experience",
+  "salary_section",
+  "currency",
+  "minimum_salary",
+  "maximum_salary",
+  "salary_negotiable",
+  "salary_negotiable_section",
+  "country",
+  "state",
+  "city",
+  "remote",
+  "hybrid",
+  "description_section",
+  "job_summary",
+  "responsibilities",
+  "requirements",
+  "benefits",
+  "status_section",
+  "status",
+  "published",
+  "featured_job"
+ ],
+ "fields": [
+  {
+   "fieldname": "job_details_section",
+   "fieldtype": "Section Break",
+   "label": "Job Details"
+  },
+  {
+   "fieldname": "job_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Job Code",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "job_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Job Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "profession",
+   "fieldtype": "Link",
+   "label": "Profession",
+   "options": "Profession"
+  },
+  {
+   "fieldname": "employment_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employment Type",
+   "options": "Employment Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "industry",
+   "fieldtype": "Link",
+   "label": "Industry",
+   "options": "Industry"
+  },
+  {
+   "fieldname": "hiring_information_section",
+   "fieldtype": "Section Break",
+   "label": "Hiring Information"
+  },
+  {
+   "fieldname": "number_of_openings",
+   "fieldtype": "Int",
+   "label": "Number of Openings",
+   "reqd": 1
+  },
+  {
+   "fieldname": "hiring_manager",
+   "fieldtype": "Link",
+   "label": "Hiring Manager",
+   "options": "User"
+  },
+  {
+   "fieldname": "recruiter",
+   "fieldtype": "Link",
+   "label": "Recruiter",
+   "options": "User"
+  },
+  {
+   "fieldname": "target_joining_date",
+   "fieldtype": "Date",
+   "label": "Target Joining Date"
+  },
+  {
+   "fieldname": "experience_section",
+   "fieldtype": "Section Break",
+   "label": "Experience"
+  },
+  {
+   "fieldname": "minimum_experience",
+   "fieldtype": "Float",
+   "label": "Minimum Experience"
+  },
+  {
+   "fieldname": "maximum_experience",
+   "fieldtype": "Float",
+   "label": "Maximum Experience"
+  },
+  {
+   "fieldname": "salary_section",
+   "fieldtype": "Section Break",
+   "label": "Salary"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "minimum_salary",
+   "fieldtype": "Currency",
+   "label": "Minimum Salary"
+  },
+  {
+   "fieldname": "maximum_salary",
+   "fieldtype": "Currency",
+   "label": "Maximum Salary"
+  },
+  {
+   "default": "0",
+   "fieldname": "salary_negotiable",
+   "fieldtype": "Check",
+   "label": "Salary Negotiable"
+  },
+  {
+   "fieldname": "salary_negotiable_section",
+   "fieldtype": "Section Break",
+   "label": "Salary Negotiable"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "default": "0",
+   "fieldname": "remote",
+   "fieldtype": "Check",
+   "label": "Remote"
+  },
+  {
+   "default": "0",
+   "fieldname": "hybrid",
+   "fieldtype": "Check",
+   "label": "Hybrid"
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "job_summary",
+   "fieldtype": "Text Editor",
+   "label": "Job Summary",
+   "reqd": 1
+  },
+  {
+   "fieldname": "responsibilities",
+   "fieldtype": "Text Editor",
+   "label": "Responsibilities",
+   "reqd": 1
+  },
+  {
+   "fieldname": "requirements",
+   "fieldtype": "Text Editor",
+   "label": "Requirements",
+   "reqd": 1
+  },
+  {
+   "fieldname": "benefits",
+   "fieldtype": "Text Editor",
+   "label": "Benefits"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nOpen\nPaused\nClosed\nFilled\nCancelled",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "published",
+   "fieldtype": "Check",
+   "label": "Published"
+  },
+  {
+   "default": "0",
+   "fieldname": "featured_job",
+   "fieldtype": "Check",
+   "label": "Featured Job"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-28 19:05:27.683991",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Job Opening",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "job_title",
+ "track_changes": 1
+}

@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:user",
+ "creation": "2026-07-28 18:44:14.511907",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_information_section",
+  "user",
+  "company",
+  "employee_id",
+  "department",
+  "designation",
+  "permissions_section",
+  "role",
+  "is_primary_recruiter",
+  "can_publish_jobs",
+  "can_hire",
+  "can_manage_recruiters",
+  "status_section",
+  "status",
+  "last_login"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_information_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "employee_id",
+   "fieldtype": "Data",
+   "label": "Employee ID"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "fieldname": "permissions_section",
+   "fieldtype": "Section Break",
+   "label": "Permissions"
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Role",
+   "options": "Administrator\nHR Manager\nRecruiter\nHiring Manager\nInterviewer\nViewer",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_primary_recruiter",
+   "fieldtype": "Check",
+   "label": "Is Primary Recruiter"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_publish_jobs",
+   "fieldtype": "Check",
+   "label": "Can Publish Jobs"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_hire",
+   "fieldtype": "Check",
+   "label": "Can Hire"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_manage_recruiters",
+   "fieldtype": "Check",
+   "label": "Can Manage Recruiters"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInactive\nBlocked"
+  },
+  {
+   "fieldname": "last_login",
+   "fieldtype": "Datetime",
+   "label": "Last Login"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-28 18:51:58.892844",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Employer User",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "user"
+}
