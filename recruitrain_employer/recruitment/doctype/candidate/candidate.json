@@ -2,7 +2,7 @@
  "actions": [],
  "allow_bulk_edit": 1,
  "allow_rename": 1,
- "autoname": "format:CAND-.#####",
+ "autoname": "field:candidate_name",
  "creation": "2026-07-28 16:52:05.715228",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -76,7 +76,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Candidate Name",
-   "reqd": 1
+   "reqd": 1,
+   "unique": 1
   },
   {
    "fieldname": "first_name",
@@ -345,11 +346,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 18:18:51.482536",
+ "modified": "2026-07-29 02:06:27.928070",
  "modified_by": "Administrator",
  "module": "Recruitment",
  "name": "Candidate",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
