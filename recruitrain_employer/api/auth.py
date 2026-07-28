@@ -7,12 +7,28 @@ recruitrain_employer.api.auth
 
 Authentication & Session Management API Endpoints.
 
-All functions in this module must be decorated with ``@frappe.whitelist()``
-(or ``@frappe.whitelist(allow_guest=True)`` for public endpoints) so that
-Frappe's REST gateway can route incoming HTTP requests to them.
+Architecture
+------------
+This module is a **thin controller layer only**. It must never access
+DocTypes, call ``frappe.get_doc()``, ``frappe.get_all()``, or
+``frappe.db`` directly. All logic — including any Frappe API calls —
+lives in ``AuthService``.
 
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.auth_service`` instead.
+Request/Response Flow::
+
+    React
+      │
+      ▼
+    api/auth.py          ← Parse input, invoke service, format response
+      │
+      ▼
+    AuthService          ← All business logic and Frappe interactions
+      │
+      ▼
+    Frappe User          ← Frappe's built-in authentication model
+      │
+      ▼
+    MariaDB
 
 Endpoint Path Prefix
 ---------------------
@@ -21,12 +37,11 @@ Endpoint Path Prefix
 
 import frappe
 
-from recruitrain_employer.services.auth_service import (  # noqa: F401  (re-exported for type hints)
-    AuthService,
-)
+from recruitrain_employer.services.auth_service import AuthService
 from recruitrain_employer.utils.exceptions import (
     ATSAuthenticationError,
-    ATSPermissionError,
+    ATSException,
+    ATSValidationError,
 )
 from recruitrain_employer.utils.response import (
     error_response,
@@ -35,16 +50,41 @@ from recruitrain_employer.utils.response import (
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _handle_ats_exception(exc: ATSException) -> dict:
+    """Translate an ``ATSException`` into a standardised error response dict.
+
+    Parameters
+    ----------
+    exc : ATSException
+        Any exception from the ATS exception hierarchy.
+
+    Returns
+    -------
+    dict
+        A standardised ``error_response`` dict.
+    """
+    return error_response(
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public Endpoints (allow_guest=True)
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist(allow_guest=True)
-def login():
-    """Authenticate an employer user and return a session token.
+def login() -> dict:
+    """Authenticate a user and establish a Frappe session.
 
-    Expected Request Body (JSON)
-    ----------------------------
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
     {
         "email": "user@company.com",
         "password": "secret"
@@ -53,84 +93,99 @@ def login():
     Returns
     -------
     dict
-        Standardised success response containing session info.
+        Standardised success response containing session info
+        (user, full_name, roles) on success, or an error envelope on failure.
 
-    Raises
-    ------
-    ATSAuthenticationError
-        If credentials are invalid.
-
-    TODO: Implement delegating to AuthService.login()
-    TODO: Return JWT / Frappe session token
-    TODO: Log login activity via ActivityLog
+    Notes
+    -----
+    - Credentials are validated by ``AuthService.login()``.
+    - Frappe's built-in session cookie is set automatically on success.
+    - No employer-specific checks are performed at this layer.
     """
-    pass
+    try:
+        email = frappe.form_dict.get("email", "").strip()
+        password = frappe.form_dict.get("password", "")
+
+        service = AuthService()
+        session_data = service.login(email=email, password=password)
+
+        return success_response(data=session_data, message="Login successful.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist(allow_guest=True)
-def register_employer():
-    """Register a new employer user and associated company.
+def forgot_password() -> dict:
+    """Trigger a Frappe password reset email for the given address.
 
-    Expected Request Body (JSON)
-    ----------------------------
-    {
-        "first_name": "Jane",
-        "last_name": "Doe",
-        "email": "jane@company.com",
-        "password": "secret",
-        "company_name": "Acme Corp"
-    }
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the new Employer User name.
-
-    TODO: Implement delegating to AuthService.register_employer()
-    TODO: Send welcome / verification email
-    TODO: Create Employer User & Company DocType records
-    """
-    pass
-
-
-@frappe.whitelist(allow_guest=True)
-def forgot_password():
-    """Trigger a password reset email for the given email address.
-
-    Expected Request Body (JSON)
-    ----------------------------
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
     { "email": "user@company.com" }
 
     Returns
     -------
     dict
-        Standardised success response.
+        Standardised success response. Always succeeds publicly (no user
+        enumeration — the response does not reveal whether the email exists).
 
-    TODO: Implement delegating to AuthService.forgot_password()
+    Notes
+    -----
+    - The actual reset email is dispatched by Frappe's email queue.
+    - Rate limiting should be added at the infrastructure level (TODO).
     """
-    pass
+    try:
+        email = frappe.form_dict.get("email", "").strip()
+
+        service = AuthService()
+        service.forgot_password(email=email)
+
+        return success_response(
+            message="If that email is registered, you will receive a reset link shortly."
+        )
+
+    except ATSValidationError as exc:
+        return _handle_ats_exception(exc)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist(allow_guest=True)
-def reset_password():
-    """Reset user password using the token received via email.
+def reset_password() -> dict:
+    """Complete a password reset using the token delivered by email.
 
-    Expected Request Body (JSON)
-    ----------------------------
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
     {
-        "token": "<reset_token>",
+        "key": "<reset_key>",
         "new_password": "new_secret"
     }
 
     Returns
     -------
     dict
-        Standardised success response.
+        Standardised success response on completion, or error envelope on failure.
 
-    TODO: Implement delegating to AuthService.reset_password()
-    TODO: Validate token expiry
+    Notes
+    -----
+    - Token validation and expiry are handled by ``AuthService.reset_password()``.
+    - On success the reset key is invalidated so it cannot be reused.
+
+    TODO: Redirect the user to the login page after a successful reset.
     """
-    pass
+    try:
+        key = frappe.form_dict.get("key", "").strip()
+        new_password = frappe.form_dict.get("new_password", "")
+
+        service = AuthService()
+        service.reset_password(key=key, new_password=new_password)
+
+        return success_response(
+            message="Your password has been reset successfully. Please log in."
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +194,7 @@ def reset_password():
 
 
 @frappe.whitelist()
-def logout():
+def logout() -> dict:
     """Invalidate the current session and log the user out.
 
     Returns
@@ -147,42 +202,90 @@ def logout():
     dict
         Standardised success response.
 
-    TODO: Implement delegating to AuthService.logout()
-    TODO: Clear server-side session / token
+    Notes
+    -----
+    - Requires an active Frappe session (non-guest).
+    - Frappe's session cookie is cleared automatically on logout.
+
+    TODO: Log logout event via ActivityLogService.
     """
-    pass
+    try:
+        service = AuthService()
+        service.logout()
+
+        return success_response(message="You have been logged out successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def me():
-    """Return the profile of the currently authenticated employer user.
+def me() -> dict:
+    """Return session state and profile for the currently authenticated user.
+
+    This is the primary session-validation endpoint for the React frontend.
+    Call it with existing session cookies to determine auth state.
 
     Returns
     -------
     dict
-        Standardised success response containing Employer User record.
+        Standardised success response containing::
 
-    TODO: Implement delegating to AuthService.get_current_user()
+            {
+                "success": true,
+                "data": {
+                    "authenticated": true,
+                    "user": "user@company.com",
+                    "full_name": "Jane Doe",
+                    "roles": ["Employer Admin"]
+                }
+            }
+
+        Or a 401-equivalent error response if unauthenticated.
+
+    Notes
+    -----
+    - Uses ``AuthService.validate_session()`` to check session state.
+    - Employer-specific profile enrichment is NOT performed here; that
+      belongs in a future ``EmployerService`` endpoint.
+
+    TODO: EmployerService will add employer profile data alongside this payload.
+    TODO: CandidateService will add candidate profile data for candidate sessions.
     """
-    pass
+    try:
+        service = AuthService()
+        session_data = service.validate_session()
+
+        return success_response(data=session_data)
+
+    except ATSAuthenticationError as exc:
+        frappe.local.response["http_status_code"] = 401
+        return _handle_ats_exception(exc)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def change_password():
-    """Change the password of the currently authenticated user.
+def register_employer() -> dict:
+    """Placeholder: Register a new employer user.
 
-    Expected Request Body (JSON)
-    ----------------------------
-    {
-        "old_password": "current_secret",
-        "new_password": "new_secret"
-    }
+    This endpoint is **not yet implemented**. Employer registration
+    belongs in a future ``EmployerService`` module and will be wired
+    here once that service is built.
 
     Returns
     -------
     dict
-        Standardised success response.
+        Error response indicating the endpoint is not yet available.
 
-    TODO: Implement delegating to AuthService.change_password()
+    TODO: Implement by delegating to EmployerService.register_employer().
+    TODO: Create Frappe User record.
+    TODO: Create Employer User DocType record linked to the Frappe User.
+    TODO: Create Company DocType record linked to the Employer User.
+    TODO: Send welcome / verification email via NotificationService.
+    TODO: Log registration to Activity Log via ActivityLogService.
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Employer registration is not yet available.",
+    )

@@ -72,10 +72,14 @@ def success_response(data: Any = None, message: str = "") -> dict:
     -------
     >>> success_response({"name": "JOB-0001"}, "Job Opening created.")
     {"success": True, "data": {"name": "JOB-0001"}, "message": "Job Opening created."}
-
-    TODO: Implement response construction
     """
-    pass
+    response: dict[str, Any] = {
+        "success": True,
+        "data": data,
+    }
+    if message:
+        response["message"] = message
+    return response
 
 
 def error_response(code: str, message: str, details: Any = None) -> dict:
@@ -107,10 +111,18 @@ def error_response(code: str, message: str, details: Any = None) -> dict:
             "details": {"field": "email"}
         }
     }
-
-    TODO: Implement response construction
     """
-    pass
+    error_body: dict[str, Any] = {
+        "code": code,
+        "message": message,
+    }
+    if details is not None:
+        error_body["details"] = details
+
+    return {
+        "success": False,
+        "error": error_body,
+    }
 
 
 def paginated_response(data: list, page: int, page_size: int, total: int) -> dict:
@@ -145,11 +157,19 @@ def paginated_response(data: list, page: int, page_size: int, total: int) -> dic
             "total_pages": 3
         }
     }
-
-    TODO: Implement response construction
-    TODO: total_pages = math.ceil(total / page_size) if page_size > 0 else 0
     """
-    pass
+    total_pages = math.ceil(total / page_size) if page_size > 0 else 0
+
+    return {
+        "success": True,
+        "data": data,
+        "meta": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+        },
+    }
 
 
 def not_found_response(doctype: str, name: str) -> dict:
@@ -166,10 +186,12 @@ def not_found_response(doctype: str, name: str) -> dict:
     -------
     dict
         An error response with code ``"NOT_FOUND"``.
-
-    TODO: Delegate to error_response("NOT_FOUND", ...)
     """
-    pass
+    return error_response(
+        code="NOT_FOUND",
+        message=f"{doctype} '{name}' was not found.",
+        details={"doctype": doctype, "name": name},
+    )
 
 
 def permission_denied_response(reason: str = "") -> dict:
@@ -184,7 +206,9 @@ def permission_denied_response(reason: str = "") -> dict:
     -------
     dict
         An error response with code ``"PERMISSION_DENIED"``.
-
-    TODO: Delegate to error_response("PERMISSION_DENIED", ...)
     """
-    pass
+    message = reason if reason else "You do not have permission to perform this action."
+    return error_response(
+        code="PERMISSION_DENIED",
+        message=message,
+    )

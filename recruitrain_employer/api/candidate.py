@@ -7,11 +7,34 @@ recruitrain_employer.api.candidate
 
 Candidate Profile API Endpoints.
 
-Provides REST endpoints for Candidate DocType operations including profile
-management, document uploads, and profile completeness checks.
+Architecture
+------------
+This module is a **thin controller only**. The following are strictly
+prohibited here:
 
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.candidate_service`` instead.
+- ``frappe.get_doc()``
+- ``frappe.get_all()``
+- ``frappe.get_list()``
+- ``frappe.db.*``
+- Any direct DocType or ORM access
+
+All business logic and database interactions live in ``CandidateService``.
+
+Request/Response Flow::
+
+    React
+      │
+      ▼
+    api/candidate.py          ← Parse input, invoke service, format response
+      │
+      ▼
+    CandidateService          ← Business logic, ORM queries
+      │
+      ▼
+    CandidateValidator        ← Input validation
+      │
+      ▼
+    Frappe ORM / MariaDB
 
 Endpoint Path Prefix
 ---------------------
@@ -20,159 +43,462 @@ Endpoint Path Prefix
 
 import frappe
 
-from recruitrain_employer.services.candidate_service import CandidateService  # noqa: F401
-from recruitrain_employer.utils.exceptions import ATSNotFoundError, ATSPermissionError
-from recruitrain_employer.utils.response import error_response, success_response
+from recruitrain_employer.services.candidate_service import CandidateService
+from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
+from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.response import (
+    error_response,
+    paginated_response,
+    success_response,
+)
 
 
 # ---------------------------------------------------------------------------
-# Candidate CRUD
+# Internal Helper
+# ---------------------------------------------------------------------------
+
+
+def _handle_ats_exception(exc: ATSException) -> dict:
+    """Translate an ``ATSException`` into a standardised error response dict.
+
+    Parameters
+    ----------
+    exc : ATSException
+        Any exception from the ATS exception hierarchy.
+
+    Returns
+    -------
+    dict
+        A standardised ``error_response`` dict.
+    """
+    return error_response(
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Candidate CRUD Endpoints
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def get_candidate(candidate_id: str):
+def create_candidate() -> dict:
+    """Create a new Candidate record.
+
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
+    ::
+
+        {
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "email": "jane.doe@example.com",
+            "phone": "+1 555 123 4567",          # optional
+            "profession": "Software Engineer",    # optional
+            "current_location": "Berlin, DE",     # optional
+            "bio": "...",                          # optional
+            "linkedin_url": "https://...",         # optional
+            "portfolio_url": "https://...",        # optional
+            "status": "Active"                     # optional
+        }
+
+    Returns
+    -------
+    dict
+        Standardised success response containing the new Candidate record,
+        or an error envelope on validation/conflict failure.
+    """
+    try:
+        data = _extract_candidate_fields(frappe.form_dict)
+
+        service = CandidateService()
+        candidate = service.create_candidate(data)
+
+        return success_response(data=candidate, message="Candidate created successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+def get_candidate(candidate_id: str) -> dict:
     """Retrieve a full Candidate profile by ID.
 
     Parameters
     ----------
     candidate_id : str
-        The name (primary key) of the Candidate DocType record.
+        The ``name`` (primary key) of the Candidate DocType record.
+        Pass as a query-string or JSON body parameter.
 
     Returns
     -------
     dict
-        Standardised success response containing the Candidate document.
-
-    Raises
-    ------
-    ATSNotFoundError
-        If no Candidate with the given ID exists.
-    ATSPermissionError
-        If the requesting user is not authorised to view this record.
-
-    TODO: Implement delegating to CandidateService.get_candidate()
-    TODO: Include linked child records (Education, Experience, Skills, etc.)
+        Standardised success response containing the Candidate document,
+        or an error envelope if not found.
     """
-    pass
+    try:
+        service = CandidateService()
+        candidate = service.get_candidate(candidate_id=candidate_id)
+
+        return success_response(data=candidate)
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def list_candidates():
-    """Return a paginated, filtered list of Candidate records.
-
-    Expected Query Parameters
-    --------------------------
-    page      : int  (default 1)
-    page_size : int  (default 20, max 100)
-    search    : str  (optional full-text search term)
-    skill     : str  (optional Skill filter)
-    location  : str  (optional location filter)
-
-    Returns
-    -------
-    dict
-        Standardised success response with ``data`` list and pagination meta.
-
-    TODO: Implement delegating to CandidateService.list_candidates()
-    TODO: Apply role-based data scoping (employer can only see own pool)
-    """
-    pass
-
-
-@frappe.whitelist()
-def update_candidate(candidate_id: str):
+def update_candidate(candidate_id: str) -> dict:
     """Update mutable fields of an existing Candidate record.
 
     Parameters
     ----------
     candidate_id : str
-        The name of the Candidate to update.
+        The ``name`` of the Candidate to update.
 
-    Expected Request Body (JSON)
-    ----------------------------
-    Partial Candidate fields to update.
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
+    Any subset of updatable Candidate fields (see
+    ``CandidateValidator.CANDIDATE_UPDATABLE_FIELDS``).
+    Email cannot be changed here — use the dedicated email-change flow.
 
     Returns
     -------
     dict
-        Standardised success response with the updated Candidate document.
-
-    TODO: Implement delegating to CandidateService.update_candidate()
-    TODO: Run candidate_validator.validate_update() before save
+        Standardised success response containing the updated Candidate
+        document, or an error envelope on failure.
     """
-    pass
+    try:
+        data = _extract_candidate_fields(frappe.form_dict, exclude={"candidate_id"})
+
+        service = CandidateService()
+        candidate = service.update_candidate(
+            candidate_id=candidate_id,
+            data=data,
+        )
+
+        return success_response(data=candidate, message="Candidate updated successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+def delete_candidate(candidate_id: str) -> dict:
+    """Delete a Candidate record.
+
+    Parameters
+    ----------
+    candidate_id : str
+        The ``name`` of the Candidate to delete.
+
+    Returns
+    -------
+    dict
+        Standardised success response on completion, or an error envelope
+        if the record is not found or has blocking linked records.
+
+    Notes
+    -----
+    If the Candidate has linked Job Applications, Interviews, or Offers,
+    Frappe will prevent deletion and a ``CONFLICT`` error is returned.
+    Resolve those references before retrying.
+    """
+    try:
+        service = CandidateService()
+        service.delete_candidate(candidate_id=candidate_id)
+
+        return success_response(
+            message=f"Candidate '{candidate_id}' was deleted successfully."
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 # ---------------------------------------------------------------------------
-# Candidate Sub-Resources
+# List & Search Endpoints
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def get_education(candidate_id: str):
+def list_candidates() -> dict:
+    """Return a paginated, filtered list of Candidate records.
+
+    Query Parameters
+    ----------------
+    page       : int  (default 1)
+        Page number (1-indexed).
+    page_size  : int  (default 20, max 100)
+        Number of records per page.
+    status     : str  (optional)
+        Filter by Candidate ``status`` field (e.g. ``"Active"``).
+    order_by   : str  (optional, default ``"creation"``)
+        Field to sort by.  Must be a whitelisted sortable field.
+    order_dir  : str  (optional, default ``"desc"``)
+        Sort direction — ``"asc"`` or ``"desc"``.
+
+    Returns
+    -------
+    dict
+        Paginated success response with ``data`` list and ``meta`` block.
+
+    TODO: Add profession, location, experience-level filter parameters.
+    TODO: Add company-scoped filtering once Employer–Candidate linking is defined.
+    """
+    try:
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        # Build the extensible filter map — add new keys here as new
+        # filter parameters are added to the API.
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = CandidateService()
+        result = service.list_candidates(
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+def search_candidates() -> dict:
+    """Search Candidate records across multiple fields.
+
+    Searches across: first_name, last_name, email, phone,
+    profession, current_location.
+
+    To add a new searchable field, update ``SEARCHABLE_FIELDS`` in
+    ``CandidateService`` — no changes are needed here.
+
+    Query Parameters
+    ----------------
+    search     : str  (required)
+        The search term.  Partial matches are supported.
+    page       : int  (default 1)
+    page_size  : int  (default 20, max 100)
+    status     : str  (optional)
+        Narrow search results by status.
+    order_by   : str  (optional, default ``"creation"``)
+    order_dir  : str  (optional, default ``"desc"``)
+
+    Returns
+    -------
+    dict
+        Paginated success response with ``data`` list and ``meta`` block,
+        or an error envelope if the search term is missing.
+    """
+    try:
+        search = frappe.form_dict.get("search", "").strip()
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = CandidateService()
+        result = service.search_candidates(
+            search=search,
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+# ---------------------------------------------------------------------------
+# Sub-Resource Endpoints (Future Sprints — stubs only)
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def get_education(candidate_id: str) -> dict:
     """List all Candidate Education records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_education()
+    TODO: Implement in the Candidate Sub-Resources sprint.
+    TODO: Delegate to CandidateService.get_education().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Education retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_experience(candidate_id: str):
+def get_experience(candidate_id: str) -> dict:
     """List all Candidate Experience records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_experience()
+    TODO: Implement in the Candidate Sub-Resources sprint.
+    TODO: Delegate to CandidateService.get_experience().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Experience retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_skills(candidate_id: str):
+def get_skills(candidate_id: str) -> dict:
     """List all Candidate Skill records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_skills()
+    TODO: Implement in the Candidate Sub-Resources sprint.
+    TODO: Delegate to CandidateService.get_skills().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Skills retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_certifications(candidate_id: str):
+def get_certifications(candidate_id: str) -> dict:
     """List all Candidate Certification records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_certifications()
+    TODO: Implement in the Candidate Sub-Resources sprint.
+    TODO: Delegate to CandidateService.get_certifications().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Certifications retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_languages(candidate_id: str):
+def get_languages(candidate_id: str) -> dict:
     """List all Candidate Language records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_languages()
+    TODO: Implement in the Candidate Sub-Resources sprint.
+    TODO: Delegate to CandidateService.get_languages().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Languages retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_documents(candidate_id: str):
+def get_documents(candidate_id: str) -> dict:
     """List all Candidate Document records for a Candidate.
 
-    TODO: Implement delegating to CandidateService.get_documents()
+    TODO: Implement in the Document Upload sprint.
+    TODO: Delegate to CandidateService.get_documents().
     """
-    pass
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Candidate Documents retrieval is not yet available.",
+    )
 
 
 @frappe.whitelist()
-def get_profile_completeness(candidate_id: str):
-    """Calculate and return a profile completeness score for a Candidate.
+def get_profile_completeness(candidate_id: str) -> dict:
+    """Return a profile completeness score for a Candidate.
+
+    TODO: Implement in the Profile Completeness sprint.
+    TODO: Delegate to CandidateService.get_profile_completeness().
+    """
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Profile completeness scoring is not yet available.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private Input Helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_candidate_fields(form_dict, exclude: set[str] | None = None) -> dict:
+    """Extract Candidate field values from the Frappe form dict.
+
+    Strips ``frappe.form_dict`` keys that are internal Frappe parameters
+    (``cmd``, ``csrf_token``, etc.) and any caller-specified ``exclude``
+    keys, returning only the fields that belong to the Candidate payload.
+
+    Parameters
+    ----------
+    form_dict : frappe.local.form_dict
+        The raw request parameters dict.
+    exclude : set[str] or None, optional
+        Additional keys to exclude from the output (e.g. ``{"candidate_id"}``
+        when the ID is a path parameter rather than a body field).
 
     Returns
     -------
     dict
-        Standardised success response with completeness percentage and
-        a list of missing fields/sections.
-
-    TODO: Implement delegating to CandidateService.get_profile_completeness()
+        A clean dict of candidate field key/value pairs.
     """
-    pass
+    # Keys injected by Frappe's request handling — never candidate data.
+    _FRAPPE_INTERNAL_KEYS: frozenset[str] = frozenset(
+        ["cmd", "csrf_token", "doctype", "docname"]
+    )
+
+    skip = _FRAPPE_INTERNAL_KEYS | (exclude or set())
+
+    return {
+        key: value
+        for key, value in form_dict.items()
+        if key not in skip and value not in (None, "")
+    }
+
+
+def _extract_list_filters(form_dict) -> dict:
+    """Extract optional list/search filter parameters from the request.
+
+    Centralises filter extraction so that adding a new filter parameter
+    (e.g. ``profession``, ``location``) only requires a change here,
+    not in each endpoint that calls ``list_candidates`` or
+    ``search_candidates``.
+
+    Parameters
+    ----------
+    form_dict : frappe.local.form_dict
+        The raw request parameters dict.
+
+    Returns
+    -------
+    dict
+        A filter map ready to be passed to ``CandidateService.list_candidates``
+        or ``CandidateService.search_candidates``.
+
+    TODO: Add profession filter when the Profession master is available.
+    TODO: Add location filter in a future sprint.
+    TODO: Add experience-level filter in a future sprint.
+    """
+    filters: dict = {}
+
+    if form_dict.get("status"):
+        filters["status"] = form_dict["status"]
+
+    # TODO: Uncomment when company-scoping is implemented.
+    # if form_dict.get("company"):
+    #     filters["company"] = form_dict["company"]
+
+    return filters
