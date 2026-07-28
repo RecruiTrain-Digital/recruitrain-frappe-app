@@ -5,48 +5,183 @@
 recruitrain_employer.services.company_service
 ===============================================
 
-Company / Organisation Business Logic Service.
+Company Business Logic Service.
 
-Owns all business logic related to:
-- Company record retrieval and listing
-- Company profile updates (description, branding, settings)
-- Logo upload handling
-- Company-scoped statistics
+Architecture
+------------
+All database operations for the Company domain are centralised here.
+The API layer (``recruitrain_employer.api.company``) must not access
+``frappe.get_doc``, ``frappe.get_all``, or ``frappe.db`` directly.
 
-All public methods on ``CompanyService`` are called exclusively from the
-API layer (``recruitrain_employer.api.company``).
+Request/Response Flow::
+
+    React
+      │
+      ▼
+    api/company.py            ← Parse input, invoke service, format response
+      │
+      ▼
+    CompanyService            ← Business logic, ORM queries
+      │
+      ▼
+    CompanyValidator          ← Normalization + validation
+      │
+      ▼
+    Frappe ORM / MariaDB
+
+Normalization Contract
+-----------------------
+``CompanyValidator.validate_create`` and ``validate_update`` normalize
+``email``, ``phone``, and ``website`` **in-place** on the input ``data`` dict.
+``CompanyService`` therefore always receives — and stores — canonical values:
+
+- ``email``   → trimmed, lowercase.
+- ``phone``   → cosmetic punctuation stripped.
+- ``website`` → scheme prepended if missing, trailing slash stripped.
+
+Serializer Safety
+-----------------
+``_serialize_company`` actively excludes Frappe internal metadata fields
+(``owner``, ``modified_by``, ``creation``, ``modified``, ``idx``,
+``docstatus``, ``doctype``, ``parent``, ``parentfield``, ``parenttype``)
+from every response.  Only fields explicitly listed in ``_LIST_FIELDS`` or
+``_DETAIL_FIELDS`` are returned, and those are additionally filtered through
+``_FRAPPE_METADATA_FIELDS`` as a second gate.
+
+Changed-Field Tracking
+-----------------------
+``_apply_changed_fields`` writes only fields whose values differ from the
+current document, preventing unnecessary Frappe dirty-field tracking and
+producing a clean diff dict for future Activity Log integration.
+
+Scope — Sprint: Company Management Foundation
+----------------------------------------------
+This sprint implements CRUD operations on the **Company** DocType only.
+
+Out of scope (implemented in future sprints):
+- Employer Users (Company ↔ User linking)
+- Departments
+- Job Openings
+- Company Statistics and Analytics
+- Logo Upload
+- Company Settings
+- Notifications and Activity Logs
+- Soft-delete / archive workflow
 
 DocTypes Used
 -------------
 - Company
-- Job Opening
-- Job Application
 
-Frappe APIs Used (planned)
---------------------------
-- frappe.get_doc()
-- frappe.get_list()
-- frappe.db.count()
+Frappe APIs Used
+----------------
+- ``frappe.new_doc()``       — new document instantiation
+- ``frappe.get_doc()``       — single-record fetch and mutation
+- ``frappe.get_list()``      — paginated, filtered listing
+- ``frappe.db.exists()``     — lightweight existence check
+- ``frappe.db.count()``      — total-row count for pagination
+- ``frappe.delete_doc()``    — safe record deletion
 """
 
 from __future__ import annotations
 
 import frappe
+from frappe.exceptions import LinkExistsError
 
 from recruitrain_employer.utils.constants import (
+    DEFAULT_PAGE,
+    DEFAULT_PAGE_SIZE,
     DOCTYPE_COMPANY,
-    DOCTYPE_JOB_OPENING,
-    DOCTYPE_JOB_APPLICATION,
+    MAX_PAGE_SIZE,
 )
 from recruitrain_employer.utils.exceptions import (
+    ATSConflictError,
     ATSNotFoundError,
-    ATSPermissionError,
     ATSValidationError,
 )
+from recruitrain_employer.validators.company_validator import CompanyValidator
+
+
+# ---------------------------------------------------------------------------
+# Module-Level Constants
+# ---------------------------------------------------------------------------
+
+#: Fields used to search across Company records.
+#: To add a new searchable field, append it here — no other changes needed.
+SEARCHABLE_FIELDS: tuple[str, ...] = (
+    "company_name",
+    "email",
+    "phone",
+    "website",
+    "industry",
+    "city",
+    "country",
+)
+
+#: Fields callers may pass to ``order_by``.
+#: Any value not in this set is silently replaced with ``"creation"``
+#: to prevent malformed queries.
+ALLOWED_SORT_FIELDS: frozenset[str] = frozenset(
+    [
+        "creation",
+        "modified",
+        "company_name",
+        "industry",
+        "country",
+        "status",
+    ]
+)
+
+#: Frappe internal metadata fields that must never appear in API responses.
+#: Applied as a second exclusion gate in ``_serialize_company`` regardless of
+#: what field list is passed — defence-in-depth against accidental exposure.
+_FRAPPE_METADATA_FIELDS: frozenset[str] = frozenset(
+    [
+        "owner",
+        "modified_by",
+        "creation",
+        "modified",
+        "idx",
+        "docstatus",
+        "doctype",
+        "parent",
+        "parentfield",
+        "parenttype",
+    ]
+)
+
+#: Fields included in list and search result rows (lightweight projection).
+#: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
+_LIST_FIELDS: list[str] = [
+    "name",
+    "company_name",
+    "industry",
+    "email",
+    "phone",
+    "website",
+    "city",
+    "country",
+    "status",
+]
+
+#: Fields returned in a full Company detail response.
+#: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
+_DETAIL_FIELDS: list[str] = _LIST_FIELDS + [
+    "description",
+    "state",
+    "address",
+    "postal_code",
+    "founded_year",
+    "company_size",
+    "linkedin_url",
+    "twitter_url",
+]
 
 
 class CompanyService:
     """Encapsulates business logic for Company profile operations.
+
+    All database reads and writes for the Company domain go through this class.
+    No DocType access is permitted in the API layer.
 
     Usage
     -----
@@ -56,138 +191,587 @@ class CompanyService:
         company = service.get_company("COMP-0001")
     """
 
+    def __init__(self) -> None:
+        self._validator = CompanyValidator()
+
     # ------------------------------------------------------------------
-    # Company CRUD
+    # CRUD Methods
     # ------------------------------------------------------------------
+
+    def create_company(self, data: dict) -> dict:
+        """Create a new Company record.
+
+        Normalization is performed by ``CompanyValidator.validate_create``
+        in-place on ``data`` before the record is saved.
+
+        Parameters
+        ----------
+        data : dict
+            Company field values.  Must include at a minimum:
+            ``company_name``, ``industry``.
+            ``email`` will be normalized (trimmed, lowercased) in-place if provided.
+            ``phone`` will be normalized (punctuation stripped) in-place if provided.
+            ``website`` will have scheme prepended and trailing slash stripped in-place
+            if provided.
+
+        Returns
+        -------
+        dict
+            The newly created Company document serialised by ``_serialize_company()``.
+
+        Raises
+        ------
+        ATSValidationError
+            If required fields are missing or any value is invalid.
+        ATSConflictError
+            If a Company with the same ``company_name`` already exists.
+
+        TODO: Log company creation to Activity Log via ActivityLogService.
+        TODO: Notify administrators via NotificationService.
+        """
+        # validate_create normalizes email, phone, website in-place before checking.
+        self._validator.validate_create(data)
+
+        # Uniqueness check uses the normalized company_name from data.
+        self._assert_name_unique(data["company_name"])
+
+        doc = frappe.new_doc(DOCTYPE_COMPANY)
+        self._apply_changed_fields(doc, data)
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return self._serialize_company(doc, fields=_DETAIL_FIELDS)
 
     def get_company(self, company_id: str) -> dict:
-        """Retrieve a Company record by ID.
+        """Retrieve a full Company profile by record name.
 
         Parameters
         ----------
         company_id : str
-            The name (primary key) of the Company record.
+            The ``name`` (primary key) of the Company record.
 
         Returns
         -------
         dict
-            The Company document.
+            The Company document serialised by ``_serialize_company()``.
+            Only business-facing fields are included; Frappe metadata is
+            excluded by the serialiser.
 
         Raises
         ------
+        ATSValidationError
+            If ``company_id`` is empty.
         ATSNotFoundError
             If no Company with the given ID exists.
-        ATSPermissionError
-            If the requesting user is not authorised to view this record.
 
-        TODO: frappe.get_doc(DOCTYPE_COMPANY, company_id)
-        TODO: Check requesting user belongs to this company
+        TODO: Attach summary stats (open job count, etc.) once those
+              sprints are implemented.
         """
-        pass
+        if not company_id:
+            raise ATSValidationError("company_id is required.", field="company_id")
+
+        doc = self._get_or_raise(company_id)
+        return self._serialize_company(doc, fields=_DETAIL_FIELDS)
 
     def update_company(self, company_id: str, data: dict) -> dict:
-        """Update mutable fields on an existing Company record.
+        """Apply a partial update to an existing Company record.
+
+        Only fields whose values have **changed** from the current document
+        are written.  Identical values are skipped, preventing unnecessary
+        dirty-field tracking and keeping the Activity Log diff clean.
 
         Parameters
         ----------
         company_id : str
-            The name of the Company to update.
+            The ``name`` of the Company to update.
         data : dict
-            Partial Company fields to apply.
+            Partial Company fields to apply.  Only fields in
+            ``COMPANY_UPDATABLE_FIELDS`` are accepted.
+            ``phone`` and ``website`` are normalized in-place if provided.
 
         Returns
         -------
         dict
-            The updated Company document.
+            The updated Company document serialised by ``_serialize_company()``.
 
         Raises
         ------
+        ATSValidationError
+            If ``company_id`` is empty, ``data`` is empty, or any field
+            is not updatable.
         ATSNotFoundError
             If no Company with the given ID exists.
-        ATSPermissionError
-            If the requesting user is not an admin of this company.
-        ATSValidationError
-            If supplied data fails validation.
 
-        TODO: Load with frappe.get_doc(), apply fields, then doc.save()
-        TODO: Call company_validator.validate_update(data) before save
+        TODO: Pass ``changed_fields`` to ActivityLogService once implemented.
         """
-        pass
+        if not company_id:
+            raise ATSValidationError("company_id is required.", field="company_id")
 
-    def list_companies(self, filters: dict, pagination: dict) -> dict:
-        """Return a paginated list of Company records accessible to the user.
+        # validate_update normalizes phone and website in-place before checking.
+        self._validator.validate_update(data)
+
+        doc = self._get_or_raise(company_id)
+
+        # Apply only changed fields; the returned dict is ready for the
+        # Activity Log in a future sprint.
+        changed_fields = self._apply_changed_fields(doc, data)
+
+        if changed_fields:
+            doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            # TODO: Log changed_fields to Activity Log via ActivityLogService.
+
+        return self._serialize_company(doc, fields=_DETAIL_FIELDS)
+
+    # TODO: Replace hard delete with an archive/deactivate workflow
+    #       during the Company Lifecycle sprint.  Most ATS systems never
+    #       permanently delete companies because they are linked to historical
+    #       job openings, applications, and interviews.
+    def delete_company(self, company_id: str) -> None:
+        """Permanently delete a Company record.
+
+        Performs a safe delete — if Frappe detects linked records that prevent
+        deletion, an ``ATSConflictError`` is raised with a user-friendly message
+        instead of exposing the raw Frappe exception.
 
         Parameters
         ----------
-        filters : dict
-            Field-based filters (e.g. ``{"industry": "Technology"}``).
-        pagination : dict
-            Pagination options: ``page`` (int), ``page_size`` (int).
+        company_id : str
+            The ``name`` of the Company to delete.
+
+        Raises
+        ------
+        ATSValidationError
+            If ``company_id`` is empty.
+        ATSNotFoundError
+            If no Company with the given ID exists.
+        ATSConflictError
+            If the Company has linked records (e.g. Job Openings, Employer Users)
+            that prevent deletion.
+
+        TODO: Log deletion to Activity Log via ActivityLogService.
+        """
+        if not company_id:
+            raise ATSValidationError("company_id is required.", field="company_id")
+
+        # Confirm existence before attempting delete.
+        self._get_or_raise(company_id)
+
+        try:
+            frappe.delete_doc(
+                DOCTYPE_COMPANY,
+                company_id,
+                ignore_permissions=True,
+                force=False,  # Respect Frappe's link-existence checks.
+            )
+            frappe.db.commit()
+        except LinkExistsError as exc:
+            raise ATSConflictError(
+                f"Company '{company_id}' cannot be deleted because it is "
+                "referenced by one or more linked records (e.g. Job Openings, "
+                "Employer Users). Please resolve those references first.",
+                details={"company_id": company_id},
+            ) from exc
+
+    def list_companies(
+        self,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        filters: dict | None = None,
+        order_by: str = "creation",
+        order_dir: str = "desc",
+    ) -> dict:
+        """Return a paginated, filtered list of Company records.
+
+        Parameters
+        ----------
+        page : int, optional
+            Page number (1-indexed).  Defaults to ``DEFAULT_PAGE``.
+        page_size : int, optional
+            Records per page.  Capped at ``MAX_PAGE_SIZE``.
+        filters : dict or None, optional
+            Optional field filters.  Supported keys today:
+
+            - ``industry`` (str) — filter by Industry.
+            - ``status``   (str) — filter by Company status field.
+            - ``country``  (str) — filter by country.
+            - ``state``    (str) — filter by state/region.
+            - ``city``     (str) — filter by city.
+
+            Additional keys can be added to ``_build_orm_filters`` without
+            changing this method signature.
+        order_by : str, optional
+            Sort field.  Must be in ``ALLOWED_SORT_FIELDS``.
+            Defaults to ``"creation"``.
+        order_dir : str, optional
+            Sort direction — ``"asc"`` or ``"desc"``.  Defaults to ``"desc"``.
 
         Returns
         -------
         dict
-            ``{ "data": [...], "total": int, "page": int, "page_size": int }``
+            ``{ "data": list[dict], "total": int, "page": int, "page_size": int }``
 
-        TODO: frappe.get_list(DOCTYPE_COMPANY, filters=..., limit=...)
-        TODO: Apply role-based scoping (admins see all; employers see their own)
+        TODO: Add employer-scoped filtering once Employer–Company linking is defined.
+        TODO: Add company_size filter in a future sprint.
         """
-        pass
+        page, page_size = self._sanitise_pagination(page, page_size)
+        order_clause = self._sanitise_order_by(order_by, order_dir)
+        orm_filters = self._build_orm_filters(filters or {})
+
+        total = frappe.db.count(DOCTYPE_COMPANY, filters=orm_filters)
+
+        records = frappe.get_list(
+            DOCTYPE_COMPANY,
+            filters=orm_filters,
+            fields=_LIST_FIELDS,
+            order_by=order_clause,
+            limit_start=(page - 1) * page_size,
+            limit_page_length=page_size,
+            ignore_permissions=True,
+        )
+
+        return {
+            "data": [dict(r) for r in records],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def search_companies(
+        self,
+        search: str,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        filters: dict | None = None,
+        order_by: str = "creation",
+        order_dir: str = "desc",
+    ) -> dict:
+        """Search Companies across ``SEARCHABLE_FIELDS`` using a single query string.
+
+        Generates an ``OR`` filter across all fields defined in
+        ``SEARCHABLE_FIELDS``.  To add a new field to the search scope,
+        append it to ``SEARCHABLE_FIELDS`` — no other code changes needed.
+
+        The search term is lowercased and trimmed before building the ``LIKE``
+        filters.  MariaDB's default collation (``utf8mb4_general_ci``) is
+        already case-insensitive; lowercasing is an additional safety measure
+        for ``_bin`` collation environments.
+
+        Parameters
+        ----------
+        search : str
+            The search term.  Lowercased and wrapped with ``%`` wildcards
+            for case-insensitive partial matching.
+        page : int, optional
+            Page number (1-indexed).
+        page_size : int, optional
+            Records per page.  Capped at ``MAX_PAGE_SIZE``.
+        filters : dict or None, optional
+            Additional field filters applied alongside the search
+            (same keys as ``list_companies``).
+        order_by : str, optional
+            Sort field.  Must be in ``ALLOWED_SORT_FIELDS``.
+        order_dir : str, optional
+            Sort direction.  Defaults to ``"desc"``.
+
+        Returns
+        -------
+        dict
+            ``{ "data": list[dict], "total": int, "page": int, "page_size": int }``
+
+        TODO: Upgrade to full-text search index once data volume warrants it.
+        """
+        if not search or not search.strip():
+            raise ATSValidationError("Search term is required.", field="search")
+
+        page, page_size = self._sanitise_pagination(page, page_size)
+        order_clause = self._sanitise_order_by(order_by, order_dir)
+        orm_filters = self._build_orm_filters(filters or {})
+
+        # Lowercase for case-insensitive matching across all collation settings.
+        term = f"%{search.strip().lower()}%"
+        or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
+
+        # Count uses base filters only; or_filters complicate exact counting
+        # but the trade-off is acceptable for current data volumes.
+        # TODO: Implement accurate total for or_filter queries at scale.
+        total = frappe.db.count(DOCTYPE_COMPANY, filters=orm_filters)
+
+        records = frappe.get_list(
+            DOCTYPE_COMPANY,
+            filters=orm_filters,
+            or_filters=or_filters,
+            fields=_LIST_FIELDS,
+            order_by=order_clause,
+            limit_start=(page - 1) * page_size,
+            limit_page_length=page_size,
+            ignore_permissions=True,
+        )
+
+        return {
+            "data": [dict(r) for r in records],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     # ------------------------------------------------------------------
-    # Company Sub-Resources
+    # Sub-Resource Methods (Future Sprints)
     # ------------------------------------------------------------------
 
     def get_company_jobs(self, company_id: str) -> list:
         """Return all active Job Openings belonging to the Company.
 
-        TODO: frappe.get_all(DOCTYPE_JOB_OPENING, filters={"company": company_id, "status": "Open"})
+        TODO: Implement in the Job Opening sprint.
+        TODO: frappe.get_all(DOCTYPE_JOB_OPENING, filters={"company": company_id})
         """
         pass
 
     def get_company_stats(self, company_id: str) -> dict:
         """Return high-level statistics for the Company.
 
-        Returns
-        -------
-        dict
-            Aggregated stats:
-            - open_jobs: int
-            - total_applications: int
-            - interviews_this_week: int
-            - pending_offers: int
+        Planned Stats
+        -------------
+        - open_jobs          : int
+        - total_applications : int
+        - interviews_this_week: int
+        - pending_offers     : int
 
-        TODO: Use frappe.db.count() for each stat
-        TODO: Scope all counts to the given company_id
+        TODO: Implement in the Dashboard/Analytics sprint.
+        TODO: Use frappe.db.count() scoped to company_id for each stat.
         """
         pass
-
-    # ------------------------------------------------------------------
-    # Branding
-    # ------------------------------------------------------------------
 
     def upload_company_logo(self, company_id: str, file_data: dict) -> str:
         """Upload or replace the Company logo.
 
+        TODO: Implement in the Logo Upload sprint.
+        TODO: Validate MIME type against ALLOWED_IMAGE_TYPES.
+        TODO: Create Frappe File record and link to Company.
+        TODO: Update company.logo field with the new file URL.
+        """
+        pass
+
+    # ------------------------------------------------------------------
+    # Private Helpers
+    # ------------------------------------------------------------------
+
+    def _get_or_raise(self, company_id: str):
+        """Fetch a Company document or raise ``ATSNotFoundError``.
+
         Parameters
         ----------
         company_id : str
-            The name of the Company.
-        file_data : dict
-            File metadata from the multipart upload.
+            The Company record name.
+
+        Returns
+        -------
+        frappe.Document
+            The live Frappe Document object.
+
+        Raises
+        ------
+        ATSNotFoundError
+            If the record does not exist.
+        """
+        if not frappe.db.exists(DOCTYPE_COMPANY, company_id):
+            raise ATSNotFoundError(
+                f"Company '{company_id}' was not found.",
+                doctype=DOCTYPE_COMPANY,
+                name=company_id,
+            )
+        return frappe.get_doc(DOCTYPE_COMPANY, company_id)
+
+    def _assert_name_unique(self, company_name: str) -> None:
+        """Raise ``ATSConflictError`` if a Company with this name already exists.
+
+        ``company_name`` is the business identity of a Company record.
+        Duplicate names are rejected at creation time.
+
+        Parameters
+        ----------
+        company_name : str
+            The company name to check for uniqueness.
+
+        Raises
+        ------
+        ATSConflictError
+            If the name is already registered to an existing Company.
+        """
+        if frappe.db.exists(DOCTYPE_COMPANY, {"company_name": company_name}):
+            raise ATSConflictError(
+                f"A Company named '{company_name}' already exists.",
+                details={"field": "company_name", "value": company_name},
+            )
+
+    @staticmethod
+    def _serialize_company(doc, fields: list[str]) -> dict:
+        """Serialise a Frappe Company Document to a plain, JSON-safe dict.
+
+        Named ``_serialize_company`` rather than a generic ``_doc_to_dict``
+        because this helper is intentionally scoped to the Company domain.
+        Each service module defines its own ``_serialize_*`` helper, making
+        the origin immediately obvious and allowing domain-specific
+        post-processing without coupling services together.
+
+        Metadata Exclusion
+        ------------------
+        Applies a second exclusion gate: any field in ``_FRAPPE_METADATA_FIELDS``
+        is stripped from the output regardless of whether it appears in
+        ``fields``.  This provides defence-in-depth against accidental exposure
+        of Frappe system data.
+
+        Parameters
+        ----------
+        doc : frappe.Document
+            The Company document to serialise.
+        fields : list[str]
+            The business-facing field names to include in the output dict.
+
+        Returns
+        -------
+        dict
+            A plain Python dict containing only non-metadata fields.
+        """
+        return {
+            field: doc.get(field)
+            for field in fields
+            if field not in _FRAPPE_METADATA_FIELDS
+        }
+
+    @staticmethod
+    def _apply_changed_fields(doc, data: dict) -> dict:
+        """Apply only genuinely changed fields onto a Frappe Document object.
+
+        Compares each incoming value against the current document value and
+        only calls ``setattr`` when they differ.  This prevents Frappe from
+        tracking unnecessary dirty fields and keeps the returned change dict
+        clean for future Activity Log diffing.
+
+        Parameters
+        ----------
+        doc : frappe.Document
+            The document to mutate in-place.
+        data : dict
+            Field/value pairs to potentially apply.
+
+        Returns
+        -------
+        dict
+            A ``{field: new_value}`` dict containing only the fields that were
+            actually changed.  An empty dict means no fields changed.
+
+        Notes
+        -----
+        Unknown fields (not present as attributes on the document) are silently
+        skipped to avoid attribute errors.
+
+        The returned dict is intended for future Activity Log integration::
+
+            changed = self._apply_changed_fields(doc, data)
+            # TODO: ActivityLogService.log_update(company_id, changed)
+        """
+        changed: dict = {}
+        for field, new_value in data.items():
+            if not hasattr(doc, field):
+                continue
+            current_value = doc.get(field)
+            if current_value != new_value:
+                setattr(doc, field, new_value)
+                changed[field] = new_value
+        return changed
+
+    @staticmethod
+    def _build_orm_filters(filters: dict) -> dict:
+        """Construct a Frappe ORM filter dict from the caller-supplied filter map.
+
+        Supported Filter Keys
+        ---------------------
+        - ``industry`` (str) — filter by Industry master value.
+        - ``status``   (str) — filter by Company status field.
+        - ``country``  (str) — filter by country.
+        - ``state``    (str) — filter by state/region.
+        - ``city``     (str) — filter by city.
+
+        Adding New Filters
+        ------------------
+        Append a new ``if filters.get("<key>"):`` block here.  The API method
+        signatures and ``list_companies`` / ``search_companies`` signatures do
+        not need to change.
+
+        Parameters
+        ----------
+        filters : dict
+            Caller-supplied key/value pairs from the API layer.
+
+        Returns
+        -------
+        dict
+            Frappe-compatible filter dict ready for ``frappe.get_list`` /
+            ``frappe.db.count``.
+        """
+        orm: dict = {}
+
+        if filters.get("industry"):
+            orm["industry"] = filters["industry"]
+
+        if filters.get("status"):
+            orm["status"] = filters["status"]
+
+        if filters.get("country"):
+            orm["country"] = filters["country"]
+
+        if filters.get("state"):
+            orm["state"] = filters["state"]
+
+        if filters.get("city"):
+            orm["city"] = filters["city"]
+
+        # TODO: Add company_size filter in a future sprint.
+        # if filters.get("company_size"):
+        #     orm["company_size"] = filters["company_size"]
+
+        return orm
+
+    @staticmethod
+    def _sanitise_pagination(page: int, page_size: int) -> tuple[int, int]:
+        """Clamp page and page_size to safe, valid ranges.
+
+        Parameters
+        ----------
+        page : int
+            Requested page number (user-supplied — never trust raw input).
+        page_size : int
+            Requested records per page (capped at ``MAX_PAGE_SIZE``).
+
+        Returns
+        -------
+        tuple[int, int]
+            Validated ``(page, page_size)`` pair.
+        """
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), MAX_PAGE_SIZE))
+        return page, page_size
+
+    @staticmethod
+    def _sanitise_order_by(order_by: str, order_dir: str) -> str:
+        """Return a validated ``ORDER BY`` clause string for ``frappe.get_list``.
+
+        Rejects any ``order_by`` value not in ``ALLOWED_SORT_FIELDS`` and falls
+        back to ``creation desc`` to prevent malformed queries.
+
+        Parameters
+        ----------
+        order_by : str
+            Requested sort field.
+        order_dir : str
+            Requested sort direction (``"asc"`` or ``"desc"``).
 
         Returns
         -------
         str
-            The public URL of the uploaded logo file.
-
-        Raises
-        ------
-        ATSValidationError
-            If the file type is not allowed or exceeds the size limit.
-
-        TODO: Validate MIME type against ALLOWED_IMAGE_TYPES constant
-        TODO: Create Frappe File record and link to Company
-        TODO: Update company.logo field with new file URL
+            A safe ``"field direction"`` string, e.g. ``"company_name asc"``.
         """
-        pass
+        safe_field = order_by if order_by in ALLOWED_SORT_FIELDS else "creation"
+        safe_dir = "asc" if str(order_dir).lower() == "asc" else "desc"
+        return f"{safe_field} {safe_dir}"

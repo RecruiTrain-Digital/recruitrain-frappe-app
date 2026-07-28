@@ -7,11 +7,34 @@ recruitrain_employer.api.jobs
 
 Job Opening API Endpoints.
 
-Provides REST endpoints for Job Opening DocType operations including
-creation, publication, search, and closing of job postings.
+Architecture
+------------
+This module is a **thin controller only**.  The following are strictly
+prohibited here:
 
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.job_service`` instead.
+- ``frappe.get_doc()``
+- ``frappe.get_all()``
+- ``frappe.get_list()``
+- ``frappe.db.*``
+- Any direct DocType or ORM access
+
+All business logic and database interactions live in ``JobService``.
+
+Request/Response Flow::
+
+    React
+      │
+      ▼
+    api/jobs.py               ← Parse input, invoke service, format response
+      │
+      ▼
+    JobService                ← Business logic, ORM queries
+      │
+      ▼
+    JobValidator              ← Input validation
+      │
+      ▼
+    Frappe ORM / MariaDB
 
 Endpoint Path Prefix
 ---------------------
@@ -20,209 +43,428 @@ Endpoint Path Prefix
 
 import frappe
 
-from recruitrain_employer.services.job_service import JobService  # noqa: F401
-from recruitrain_employer.utils.exceptions import ATSNotFoundError, ATSPermissionError
-from recruitrain_employer.utils.response import error_response, success_response
+from recruitrain_employer.services.job_service import JobService
+from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
+from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.response import (
+    error_response,
+    paginated_response,
+    success_response,
+)
 
 
 # ---------------------------------------------------------------------------
-# Job Opening CRUD
+# Internal Helper
+# ---------------------------------------------------------------------------
+
+
+def _handle_ats_exception(exc: ATSException) -> dict:
+    """Translate an ``ATSException`` into a standardised error response dict.
+
+    Parameters
+    ----------
+    exc : ATSException
+        Any exception from the ATS exception hierarchy.
+
+    Returns
+    -------
+    dict
+        A standardised ``error_response`` dict.
+    """
+    return error_response(
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Job Opening CRUD Endpoints
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def create_job_opening():
+def create_job() -> dict:
     """Create a new Job Opening record.
 
-    Expected Request Body (JSON)
-    ----------------------------
-    {
-        "job_title": "Senior Python Developer",
-        "company": "Acme Corp",
-        "department": "Engineering",
-        "employment_type": "Full-Time",
-        "description": "...",
-        "required_skills": ["Python", "Frappe"],
-        "location": "Berlin",
-        "salary_min": 80000,
-        "salary_max": 110000
-    }
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
+    ::
+
+        {
+            "job_title":         "Senior Python Developer",   # required
+            "company":           "Acme Corp",                 # required
+            "employment_type":   "Full-Time",                 # required
+            "description":       "We are looking for ...",    # required
+            "job_code":          "ENG-2024-001",              # optional
+            "department":        "Engineering",               # optional
+            "location":          "Berlin, DE",                # optional
+            "salary_min":        80000,                       # optional
+            "salary_max":        110000,                      # optional
+            "currency":          "EUR",                       # optional
+            "status":            "Draft",                     # optional
+            "opening_date":      "2024-01-15",                # optional
+            "closing_date":      "2024-03-31",                # optional
+            "number_of_positions": 2                          # optional
+        }
 
     Returns
     -------
     dict
-        Standardised success response with the created Job Opening document.
-
-    TODO: Implement delegating to JobService.create_job_opening()
-    TODO: Run job_validator.validate_create() before insert
-    TODO: Log creation to Activity Log
+        Standardised success response containing the new Job Opening record,
+        or an error envelope on validation/conflict failure.
     """
-    pass
+    try:
+        data = _extract_job_fields(frappe.form_dict)
+
+        service = JobService()
+        job = service.create_job(data)
+
+        return success_response(data=job, message="Job Opening created successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def get_job_opening(job_id: str):
-    """Retrieve a single Job Opening record by ID.
+def get_job(job_id: str) -> dict:
+    """Retrieve a full Job Opening record by ID.
 
     Parameters
     ----------
     job_id : str
-        The name (primary key) of the Job Opening DocType record.
+        The ``name`` (primary key) of the Job Opening DocType record.
+        Pass as a query-string or JSON body parameter.
 
     Returns
     -------
     dict
-        Standardised success response containing the Job Opening document.
-
-    Raises
-    ------
-    ATSNotFoundError
-        If no Job Opening with the given ID exists.
-
-    TODO: Implement delegating to JobService.get_job_opening()
-    TODO: Include aggregated application count in response
+        Standardised success response containing the Job Opening document,
+        or an error envelope if not found.
     """
-    pass
+    try:
+        service = JobService()
+        job = service.get_job(job_id=job_id)
+
+        return success_response(data=job)
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def update_job_opening(job_id: str):
-    """Update an existing Job Opening record.
+def update_job(job_id: str) -> dict:
+    """Update mutable fields of an existing Job Opening record.
 
     Parameters
     ----------
     job_id : str
-        The name of the Job Opening to update.
+        The ``name`` of the Job Opening to update.
 
-    Expected Request Body (JSON)
-    ----------------------------
-    Partial Job Opening fields to update.
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
+    Any subset of updatable Job Opening fields (see
+    ``JobValidator.JOB_UPDATABLE_FIELDS``).
+    ``company`` cannot be changed here.
 
     Returns
     -------
     dict
-        Standardised success response with the updated Job Opening document.
-
-    TODO: Implement delegating to JobService.update_job_opening()
-    TODO: Run job_validator.validate_update() before save
-    TODO: Only allow updates when status is Draft or Open
+        Standardised success response containing the updated Job Opening
+        document, or an error envelope on failure.
     """
-    pass
+    try:
+        data = _extract_job_fields(frappe.form_dict, exclude={"job_id"})
+
+        service = JobService()
+        job = service.update_job(
+            job_id=job_id,
+            data=data,
+        )
+
+        return success_response(data=job, message="Job Opening updated successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def delete_job_opening(job_id: str):
-    """Delete (or archive) a Job Opening record.
+def delete_job(job_id: str) -> dict:
+    """Delete a Job Opening record.
 
     Parameters
     ----------
     job_id : str
-        The name of the Job Opening to delete.
+        The ``name`` of the Job Opening to delete.
 
     Returns
     -------
     dict
-        Standardised success response.
+        Standardised success response on completion, or an error envelope
+        if the record is not found or has blocking linked records.
 
-    TODO: Implement delegating to JobService.delete_job_opening()
-    TODO: Only allow deletion when status is Draft
-    TODO: Archive (soft-delete) instead of hard-delete in production
+    Notes
+    -----
+    If the Job Opening has linked Job Applications, Frappe will prevent
+    deletion and a ``CONFLICT`` error is returned.  Resolve those
+    references before retrying.
+
+    TODO: Replace hard delete with archive workflow during Job Lifecycle sprint.
     """
-    pass
+    try:
+        service = JobService()
+        service.delete_job(job_id=job_id)
+
+        return success_response(
+            message=f"Job Opening '{job_id}' was deleted successfully."
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 # ---------------------------------------------------------------------------
-# Job Opening Lifecycle
+# List & Search Endpoints
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def publish_job_opening(job_id: str):
-    """Publish a Draft Job Opening to make it visible to candidates.
+def list_jobs() -> dict:
+    """Return a paginated, filtered list of Job Opening records.
 
-    Parameters
-    ----------
-    job_id : str
-        The name of the Job Opening to publish.
+    Query Parameters
+    ----------------
+    page           : int  (default 1)
+        Page number (1-indexed).
+    page_size      : int  (default 20, max 100)
+        Number of records per page.
+    company        : str  (optional)
+        Filter by Company.
+    department     : str  (optional)
+        Filter by Department.
+    employment_type : str  (optional)
+        Filter by Employment Type.
+    status         : str  (optional)
+        Filter by Job Opening status (Draft | Open | On Hold | Closed).
+    location       : str  (optional)
+        Filter by location string.
+    order_by       : str  (optional, default ``"creation"``)
+        Field to sort by.  Must be a whitelisted sortable field.
+    order_dir      : str  (optional, default ``"desc"``)
+        Sort direction — ``"asc"`` or ``"desc"``.
 
     Returns
     -------
     dict
-        Standardised success response with updated status.
+        Paginated success response with ``data`` list and ``meta`` block.
 
-    TODO: Implement delegating to JobService.publish_job_opening()
-    TODO: Validate all required fields before publishing
-    TODO: Log status change to Activity Log
+    TODO: Add salary range filter parameters in a future sprint.
+    TODO: Add employer-scoped filtering once Employer–Company linking is defined.
     """
-    pass
+    try:
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        # Build the extensible filter map — add new keys here as new
+        # filter parameters are added to the API.
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = JobService()
+        result = service.list_jobs(
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def close_job_opening(job_id: str):
+def search_jobs() -> dict:
+    """Search Job Opening records across multiple fields.
+
+    Searches across: job_title, job_code, department, employment_type,
+    location, company.
+
+    To add a new searchable field, update ``SEARCHABLE_FIELDS`` in
+    ``JobService`` — no changes are needed here.
+
+    Query Parameters
+    ----------------
+    search         : str  (required)
+        The search term.  Partial matches are supported.
+    page           : int  (default 1)
+    page_size      : int  (default 20, max 100)
+    company        : str  (optional)
+        Narrow search results by company.
+    department     : str  (optional)
+        Narrow search results by department.
+    employment_type : str  (optional)
+        Narrow search results by employment type.
+    status         : str  (optional)
+        Narrow search results by status.
+    location       : str  (optional)
+        Narrow search results by location.
+    order_by       : str  (optional, default ``"creation"``)
+    order_dir      : str  (optional, default ``"desc"``)
+
+    Returns
+    -------
+    dict
+        Paginated success response with ``data`` list and ``meta`` block,
+        or an error envelope if the search term is missing.
+    """
+    try:
+        search = frappe.form_dict.get("search", "").strip()
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = JobService()
+        result = service.search_jobs(
+            search=search,
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle Endpoints (Future Sprints — stubs only)
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def publish_job(job_id: str) -> dict:
+    """Publish a Draft Job Opening to make it visible.
+
+    TODO: Implement in the Job Lifecycle sprint.
+    TODO: Delegate to JobService.publish_job().
+    TODO: Validate all required fields before publishing.
+    TODO: Log status change to Activity Log.
+    """
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Job Opening publishing is not yet available.",
+    )
+
+
+@frappe.whitelist()
+def close_job(job_id: str) -> dict:
     """Close an active Job Opening, stopping new applications.
 
+    TODO: Implement in the Job Lifecycle sprint.
+    TODO: Delegate to JobService.close_job().
+    TODO: Notify existing applicants if required.
+    """
+    return error_response(
+        code="NOT_IMPLEMENTED",
+        message="Job Opening closing is not yet available.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private Input Helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_job_fields(form_dict, exclude: set[str] | None = None) -> dict:
+    """Extract Job Opening field values from the Frappe form dict.
+
+    Strips ``frappe.form_dict`` keys that are internal Frappe parameters
+    (``cmd``, ``csrf_token``, etc.) and any caller-specified ``exclude``
+    keys, returning only the fields that belong to the Job Opening payload.
+
     Parameters
     ----------
-    job_id : str
-        The name of the Job Opening to close.
+    form_dict : frappe.local.form_dict
+        The raw request parameters dict.
+    exclude : set[str] or None, optional
+        Additional keys to exclude from the output (e.g. ``{"job_id"}``
+        when the ID is a path parameter rather than a body field).
 
     Returns
     -------
     dict
-        Standardised success response with updated status.
-
-    TODO: Implement delegating to JobService.close_job_opening()
-    TODO: Notify existing applicants if required
+        A clean dict of job opening field key/value pairs.
     """
-    pass
+    # Keys injected by Frappe's request handling — never job data.
+    _FRAPPE_INTERNAL_KEYS: frozenset[str] = frozenset(
+        ["cmd", "csrf_token", "doctype", "docname"]
+    )
+
+    skip = _FRAPPE_INTERNAL_KEYS | (exclude or set())
+
+    return {
+        key: value
+        for key, value in form_dict.items()
+        if key not in skip and value not in (None, "")
+    }
 
 
-# ---------------------------------------------------------------------------
-# Job Opening Search & Discovery
-# ---------------------------------------------------------------------------
+def _extract_list_filters(form_dict) -> dict:
+    """Extract optional list/search filter parameters from the request.
 
+    Centralises filter extraction so that adding a new filter parameter
+    (e.g. ``salary_min``, ``salary_max``) only requires a change here,
+    not in each endpoint that calls ``list_jobs`` or ``search_jobs``.
 
-@frappe.whitelist(allow_guest=True)
-def search_job_openings():
-    """Public search endpoint for discovering active Job Openings.
-
-    Expected Query Parameters
-    --------------------------
-    page          : int  (default 1)
-    page_size     : int  (default 20, max 100)
-    q             : str  (full-text search query)
-    location      : str  (city or remote)
-    employment_type : str
-    industry      : str
-    salary_min    : int
-    salary_max    : int
+    Parameters
+    ----------
+    form_dict : frappe.local.form_dict
+        The raw request parameters dict.
 
     Returns
     -------
     dict
-        Standardised success response with ``data`` list and pagination meta.
+        A filter map ready to be passed to ``JobService.list_jobs``
+        or ``JobService.search_jobs``.
 
-    TODO: Implement delegating to JobService.search_job_openings()
-    TODO: Support ElasticSearch / Frappe full-text search
+    TODO: Add salary range filters in a future sprint.
+    TODO: Add employer-scoped filter once Employer–Company linking is defined.
     """
-    pass
+    filters: dict = {}
 
+    if form_dict.get("company"):
+        filters["company"] = form_dict["company"]
 
-@frappe.whitelist()
-def list_my_job_openings():
-    """Return all Job Openings belonging to the authenticated employer's company.
+    if form_dict.get("department"):
+        filters["department"] = form_dict["department"]
 
-    Expected Query Parameters
-    --------------------------
-    page      : int  (default 1)
-    page_size : int  (default 20, max 100)
-    status    : str  (Draft | Open | Closed | On Hold)
+    if form_dict.get("employment_type"):
+        filters["employment_type"] = form_dict["employment_type"]
 
-    Returns
-    -------
-    dict
-        Standardised success response with ``data`` list and pagination meta.
+    if form_dict.get("status"):
+        filters["status"] = form_dict["status"]
 
-    TODO: Implement delegating to JobService.list_my_job_openings()
-    """
-    pass
+    if form_dict.get("location"):
+        filters["location"] = form_dict["location"]
+
+    return filters
