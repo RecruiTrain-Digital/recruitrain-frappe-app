@@ -99,8 +99,15 @@ APPLICATION_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "cover_letter",
         "resume",
         "application_date",
+        "applied_on",
         "status",
+        "current_stage",
         "notes",
+        "rejection_reason",
+        "source",
+        "rating",
+        "priority",
+        "assigned_recruiter",
     ]
 )
 
@@ -112,8 +119,15 @@ APPLICATION_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "cover_letter",
         "resume",
         "application_date",
+        "applied_on",
         "status",
+        "current_stage",
         "notes",
+        "rejection_reason",
+        "source",
+        "rating",
+        "priority",
+        "assigned_recruiter",
     ]
 )
 

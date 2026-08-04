@@ -86,7 +86,7 @@ Frappe APIs Used
 from __future__ import annotations
 
 import frappe
-from frappe.exceptions import LinkExistsError
+from frappe.exceptions import DuplicateEntryError, LinkExistsError
 
 from recruitrain_employer.utils.constants import (
     DEFAULT_PAGE,
@@ -237,8 +237,13 @@ class CandidateService:
 
         doc = frappe.new_doc(DOCTYPE_CANDIDATE)
         self._apply_changed_fields(doc, data)
-        doc.insert(ignore_permissions=True)
-        frappe.db.commit()
+        try:
+            doc.insert(ignore_permissions=True)
+        except DuplicateEntryError as exc:
+            raise ATSConflictError(
+                f"A Candidate with email '{data.get('email')}' already exists.",
+                details={"field": "email", "value": data.get("email")},
+            ) from exc
 
         return self._serialize_candidate(doc, fields=_DETAIL_FIELDS)
 
@@ -320,8 +325,13 @@ class CandidateService:
         changed_fields = self._apply_changed_fields(doc, data)
 
         if changed_fields:
-            doc.save(ignore_permissions=True)
-            frappe.db.commit()
+            try:
+                doc.save(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    f"Candidate conflict during update.",
+                    details={"candidate_id": candidate_id},
+                ) from exc
             # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
         return self._serialize_candidate(doc, fields=_DETAIL_FIELDS)
@@ -367,7 +377,6 @@ class CandidateService:
                 ignore_permissions=True,
                 force=False,  # Respect Frappe's link-existence checks.
             )
-            frappe.db.commit()
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Candidate '{candidate_id}' cannot be deleted because it is "
@@ -488,16 +497,12 @@ class CandidateService:
         order_clause = self._sanitise_order_by(order_by, order_dir)
         orm_filters = self._build_orm_filters(filters or {})
 
-        # Lowercase the term so the LIKE pattern is case-insensitive even on
-        # binary collations.  The leading/trailing % enable substring matching.
-        term = f"%{search.strip().lower()}%"
+        # Escape wildcard characters (% and _) to prevent search injection.
+        escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        # Count uses base filters only; or_filters complicate exact counting
-        # but the trade-off is acceptable for current data volumes.
-        # TODO: Implement accurate total for or_filter queries if pagination
-        #       accuracy becomes critical at scale.
-        total = frappe.db.count(DOCTYPE_CANDIDATE, filters=orm_filters)
+        total = frappe.db.count(DOCTYPE_CANDIDATE, filters=orm_filters, or_filters=or_filters)
 
         records = frappe.get_list(
             DOCTYPE_CANDIDATE,
@@ -707,8 +712,9 @@ class CandidateService:
             # TODO: ActivityLogService.log_update(candidate_id, changed)
         """
         changed: dict = {}
+        meta = frappe.get_meta(doc.doctype)
         for field, new_value in data.items():
-            if not hasattr(doc, field):
+            if not meta.has_field(field):
                 continue
             current_value = doc.get(field)
             if current_value != new_value:

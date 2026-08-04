@@ -18,9 +18,8 @@ API layer (``recruitrain_employer.api.interviews``).
 
 from __future__ import annotations
 
-# pyrefly: ignore [missing-import]
 import frappe
-from frappe.exceptions import LinkExistsError
+from frappe.exceptions import DuplicateEntryError, LinkExistsError
 
 from recruitrain_employer.utils.constants import (
     DEFAULT_PAGE,
@@ -32,7 +31,12 @@ from recruitrain_employer.utils.constants import (
 from recruitrain_employer.utils.exceptions import (
     ATSConflictError,
     ATSNotFoundError,
+    ATSPermissionError,
     ATSValidationError,
+)
+from recruitrain_employer.utils.permissions import (
+    get_current_company,
+    is_company_member,
 )
 from recruitrain_employer.validators.interview_validator import (
     ALLOWED_INTERVIEW_STATUSES,
@@ -110,10 +114,7 @@ class InterviewService:
         self._validator = InterviewValidator()
 
     def create_interview(self, data: dict) -> dict:
-        """Create a new Interview record.
-
-        Auto-derives candidate, job_opening, and company from job_application if missing.
-        """
+        """Create a new Interview record."""
         self._validator.validate_create(data)
 
         # Derive parent fields from Job Application if omitted
@@ -121,6 +122,9 @@ class InterviewService:
         candidate = data.get("candidate") or app_doc.candidate
         job_opening = data.get("job_opening") or app_doc.job_opening
         company = data.get("company") or app_doc.company
+
+        # Enforce Company Scoping
+        self._assert_company_access(company)
 
         interview_data = dict(data)
         interview_data["candidate"] = candidate
@@ -135,8 +139,13 @@ class InterviewService:
 
         doc = frappe.new_doc(DOCTYPE_INTERVIEW)
         self._apply_changed_fields(doc, interview_data)
-        doc.insert(ignore_permissions=True)
-        frappe.db.commit()
+        try:
+            doc.insert(ignore_permissions=True)
+        except DuplicateEntryError as exc:
+            raise ATSConflictError(
+                f"Interview conflict during creation.",
+                details={"interview_name": interview_data.get("interview_name")},
+            ) from exc
 
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
 
@@ -152,6 +161,7 @@ class InterviewService:
             )
 
         doc = self._get_or_raise(interview_id)
+        self._assert_company_access(doc.company)
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
 
     def update_interview(self, interview_id: str, data: dict) -> dict:
@@ -163,11 +173,17 @@ class InterviewService:
 
         self._validator.validate_update(data)
         doc = self._get_or_raise(interview_id)
+        self._assert_company_access(doc.company)
 
         changed_fields = self._apply_changed_fields(doc, data)
         if changed_fields:
-            doc.save(ignore_permissions=True)
-            frappe.db.commit()
+            try:
+                doc.save(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    f"Interview conflict during update.",
+                    details={"interview_id": interview_id},
+                ) from exc
 
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
 
@@ -178,7 +194,8 @@ class InterviewService:
                 "interview_id is required.", field="interview_id"
             )
 
-        self._get_or_raise(interview_id)
+        doc = self._get_or_raise(interview_id)
+        self._assert_company_access(doc.company)
 
         try:
             frappe.delete_doc(
@@ -187,7 +204,6 @@ class InterviewService:
                 ignore_permissions=True,
                 force=False,
             )
-            frappe.db.commit()
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Interview '{interview_id}' cannot be deleted because it is referenced by linked records.",
@@ -202,7 +218,7 @@ class InterviewService:
         order_by: str = "creation",
         order_dir: str = "desc",
     ) -> dict:
-        """Return a paginated list of Interview records."""
+        """Return a paginated list of Interview records with company scoping."""
         page, page_size = self._sanitise_pagination(page, page_size)
         order_clause = self._sanitise_order_by(order_by, order_dir)
         orm_filters = self._build_filters(filters or {})
@@ -243,10 +259,12 @@ class InterviewService:
         order_clause = self._sanitise_order_by(order_by, order_dir)
         orm_filters = self._build_filters(filters or {})
 
-        term = f"%{search.strip().lower()}%"
+        escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        total = frappe.db.count(DOCTYPE_INTERVIEW, filters=orm_filters)
+        # Fix Priority 4: Ensure db.count uses both filters and or_filters
+        total = frappe.db.count(DOCTYPE_INTERVIEW, filters=orm_filters, or_filters=or_filters)
 
         records = frappe.get_list(
             DOCTYPE_INTERVIEW,
@@ -280,6 +298,7 @@ class InterviewService:
 
         self._validator.validate_status(new_status)
         doc = self._get_or_raise(interview_id)
+        self._assert_company_access(doc.company)
 
         frappe.db.set_value(
             DOCTYPE_INTERVIEW,
@@ -288,7 +307,6 @@ class InterviewService:
             new_status,
             update_modified=True,
         )
-        frappe.db.commit()
 
         doc.reload()
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
@@ -308,6 +326,20 @@ class InterviewService:
         return frappe.get_doc(DOCTYPE_INTERVIEW, interview_id)
 
     @staticmethod
+    def _assert_company_access(company: str) -> None:
+        """Assert user has permission to access records of company."""
+        if not company:
+            return
+        if getattr(frappe.session, "user", "") == "Administrator":
+            return
+        current_comp = get_current_company()
+        if company != current_comp:
+            raise ATSPermissionError(
+                f"Cross-company access prohibited. Record belongs to '{company}', active user belongs to '{current_comp}'.",
+                details={"record_company": company, "user_company": current_comp},
+            )
+
+    @staticmethod
     def _serialize_interview(doc, fields: list[str]) -> dict:
         """Serialise an Interview document to a clean dict excluding Frappe metadata."""
         return {
@@ -320,8 +352,9 @@ class InterviewService:
     def _apply_changed_fields(doc, data: dict) -> dict:
         """Apply changed fields to doc."""
         changed: dict = {}
+        meta = frappe.get_meta(doc.doctype)
         for field, new_value in data.items():
-            if not hasattr(doc, field):
+            if not meta.has_field(field):
                 continue
             current_value = doc.get(field)
             if current_value != new_value:
@@ -329,19 +362,21 @@ class InterviewService:
                 changed[field] = new_value
         return changed
 
-    @staticmethod
-    def _build_filters(filters: dict) -> dict:
-        """Construct ORM filters for Interview queries."""
+    def _build_filters(self, filters: dict) -> dict:
+        """Construct ORM filters for Interview queries with company scoping."""
         orm: dict = {}
+
+        # Priority 2: Automatic Company Scoping
+        if getattr(frappe.session, "user", "") != "Administrator":
+            orm["company"] = get_current_company()
+        elif filters.get("company"):
+            orm["company"] = filters["company"]
 
         if filters.get("job_application"):
             orm["job_application"] = filters["job_application"]
 
         if filters.get("candidate"):
             orm["candidate"] = filters["candidate"]
-
-        if filters.get("company"):
-            orm["company"] = filters["company"]
 
         if filters.get("job_opening"):
             orm["job_opening"] = filters["job_opening"]

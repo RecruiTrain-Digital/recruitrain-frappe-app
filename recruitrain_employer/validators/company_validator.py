@@ -78,10 +78,14 @@ COMPANY_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "state",
         "city",
         "address",
+        "address_line_1",
+        "address_line_2",
         "postal_code",
         "status",
         "founded_year",
         "company_size",
+        "linkedin",
+        "twitter",
         "linkedin_url",
         "twitter_url",
     ]
@@ -100,10 +104,14 @@ COMPANY_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "state",
         "city",
         "address",
+        "address_line_1",
+        "address_line_2",
         "postal_code",
         "status",
         "founded_year",
         "company_size",
+        "linkedin",
+        "twitter",
         "linkedin_url",
         "twitter_url",
     ]
@@ -201,8 +209,14 @@ class CompanyValidator:
         if data.get("website"):
             self.validate_website(data["website"])
 
+        if data.get("linkedin"):
+            self._validate_url(data["linkedin"], field="linkedin")
+
         if data.get("linkedin_url"):
             self._validate_url(data["linkedin_url"], field="linkedin_url")
+
+        if data.get("twitter"):
+            self._validate_url(data["twitter"], field="twitter")
 
         if data.get("twitter_url"):
             self._validate_url(data["twitter_url"], field="twitter_url")

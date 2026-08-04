@@ -85,7 +85,7 @@ Frappe APIs Used
 from __future__ import annotations
 
 import frappe
-from frappe.exceptions import LinkExistsError
+from frappe.exceptions import DuplicateEntryError, LinkExistsError
 
 from recruitrain_employer.utils.constants import (
     DEFAULT_PAGE,
@@ -168,10 +168,14 @@ _LIST_FIELDS: list[str] = [
 _DETAIL_FIELDS: list[str] = _LIST_FIELDS + [
     "description",
     "state",
+    "address_line_1",
+    "address_line_2",
     "address",
     "postal_code",
     "founded_year",
     "company_size",
+    "linkedin",
+    "twitter",
     "linkedin_url",
     "twitter_url",
 ]
@@ -237,8 +241,13 @@ class CompanyService:
 
         doc = frappe.new_doc(DOCTYPE_COMPANY)
         self._apply_changed_fields(doc, data)
-        doc.insert(ignore_permissions=True)
-        frappe.db.commit()
+        try:
+            doc.insert(ignore_permissions=True)
+        except DuplicateEntryError as exc:
+            raise ATSConflictError(
+                f"A Company named '{data.get('company_name')}' already exists.",
+                details={"field": "company_name", "value": data.get("company_name")},
+            ) from exc
 
         return self._serialize_company(doc, fields=_DETAIL_FIELDS)
 
@@ -317,8 +326,13 @@ class CompanyService:
         changed_fields = self._apply_changed_fields(doc, data)
 
         if changed_fields:
-            doc.save(ignore_permissions=True)
-            frappe.db.commit()
+            try:
+                doc.save(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    f"Company conflict during update.",
+                    details={"company_id": company_id},
+                ) from exc
             # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
         return self._serialize_company(doc, fields=_DETAIL_FIELDS)
@@ -364,7 +378,6 @@ class CompanyService:
                 ignore_permissions=True,
                 force=False,  # Respect Frappe's link-existence checks.
             )
-            frappe.db.commit()
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Company '{company_id}' cannot be deleted because it is "
@@ -488,14 +501,12 @@ class CompanyService:
         order_clause = self._sanitise_order_by(order_by, order_dir)
         orm_filters = self._build_orm_filters(filters or {})
 
-        # Lowercase for case-insensitive matching across all collation settings.
-        term = f"%{search.strip().lower()}%"
+        # Escape wildcard characters (% and _) to prevent search injection.
+        escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        # Count uses base filters only; or_filters complicate exact counting
-        # but the trade-off is acceptable for current data volumes.
-        # TODO: Implement accurate total for or_filter queries at scale.
-        total = frappe.db.count(DOCTYPE_COMPANY, filters=orm_filters)
+        total = frappe.db.count(DOCTYPE_COMPANY, filters=orm_filters, or_filters=or_filters)
 
         records = frappe.get_list(
             DOCTYPE_COMPANY,
@@ -672,8 +683,9 @@ class CompanyService:
             # TODO: ActivityLogService.log_update(company_id, changed)
         """
         changed: dict = {}
+        meta = frappe.get_meta(doc.doctype)
         for field, new_value in data.items():
-            if not hasattr(doc, field):
+            if not meta.has_field(field):
                 continue
             current_value = doc.get(field)
             if current_value != new_value:

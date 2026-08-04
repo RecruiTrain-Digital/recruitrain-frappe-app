@@ -9,13 +9,6 @@ Offer Management API Endpoints.
 
 Provides REST endpoints for Offer DocType operations including creation,
 retrieval, update, deletion, listing, search, and status changes.
-
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.offer_service.OfferService``.
-
-Endpoint Path Prefix
----------------------
-/api/method/recruitrain_employer.api.offers.<function_name>
 """
 
 from __future__ import annotations
@@ -25,6 +18,7 @@ import frappe
 from recruitrain_employer.services.offer_service import OfferService
 from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.permissions import employer_required
 from recruitrain_employer.utils.response import (
     error_response,
     paginated_response,
@@ -47,6 +41,7 @@ def _handle_ats_exception(exc: ATSException) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def create_offer() -> dict:
     """Create a new Offer record for a Job Application / Interview."""
     try:
@@ -62,6 +57,7 @@ def create_offer() -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def get_offer(offer_id: str | None = None) -> dict:
     """Retrieve a single Offer record by ID."""
     try:
@@ -74,6 +70,7 @@ def get_offer(offer_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def update_offer(offer_id: str | None = None) -> dict:
     """Update an existing Offer record."""
     try:
@@ -92,6 +89,7 @@ def update_offer(offer_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def delete_offer(offer_id: str | None = None) -> dict:
     """Delete an Offer record."""
     try:
@@ -111,11 +109,9 @@ def delete_offer(offer_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def change_status(offer_id: str | None = None, new_status: str | None = None) -> dict:
-    """Change the status of an Offer.
-
-    Allowed status values: Draft | Sent | Accepted | Rejected | Withdrawn | Expired
-    """
+    """Change the status of an Offer."""
     try:
         target_id = offer_id or frappe.form_dict.get("offer_id") or frappe.form_dict.get("name")
         status_val = new_status or frappe.form_dict.get("new_status") or frappe.form_dict.get("offer_status") or frappe.form_dict.get("status")
@@ -139,6 +135,7 @@ def change_status(offer_id: str | None = None, new_status: str | None = None) ->
 
 
 @frappe.whitelist()
+@employer_required
 def list_offers() -> dict:
     """Return a paginated list of Offer records."""
     try:
@@ -169,6 +166,7 @@ def list_offers() -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def search_offers() -> dict:
     """Search Offer records across candidate, company, job_opening, offer_name, offer_status, joining_date."""
     try:

@@ -9,13 +9,6 @@ Interview Scheduling API Endpoints.
 
 Provides REST endpoints for Interview DocType operations including creation,
 retrieval, update, deletion, listing, search, and status changes.
-
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.interview_service.InterviewService``.
-
-Endpoint Path Prefix
----------------------
-/api/method/recruitrain_employer.api.interviews.<function_name>
 """
 
 from __future__ import annotations
@@ -25,6 +18,7 @@ import frappe
 from recruitrain_employer.services.interview_service import InterviewService
 from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.permissions import employer_required
 from recruitrain_employer.utils.response import (
     error_response,
     paginated_response,
@@ -47,6 +41,7 @@ def _handle_ats_exception(exc: ATSException) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def create_interview() -> dict:
     """Create a new Interview record."""
     try:
@@ -62,12 +57,14 @@ def create_interview() -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def schedule_interview() -> dict:
     """Alias for create_interview."""
     return create_interview()
 
 
 @frappe.whitelist()
+@employer_required
 def get_interview(interview_id: str | None = None) -> dict:
     """Retrieve a single Interview record by ID."""
     try:
@@ -80,6 +77,7 @@ def get_interview(interview_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def update_interview(interview_id: str | None = None) -> dict:
     """Update an existing Interview record."""
     try:
@@ -98,6 +96,7 @@ def update_interview(interview_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def delete_interview(interview_id: str | None = None) -> dict:
     """Delete an Interview record."""
     try:
@@ -117,11 +116,9 @@ def delete_interview(interview_id: str | None = None) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def change_status(interview_id: str | None = None, new_status: str | None = None) -> dict:
-    """Change the status of an Interview.
-
-    Allowed status values: Scheduled | Rescheduled | Completed | Cancelled | No Show
-    """
+    """Change the status of an Interview."""
     try:
         target_id = interview_id or frappe.form_dict.get("interview_id") or frappe.form_dict.get("name")
         status_val = new_status or frappe.form_dict.get("new_status") or frappe.form_dict.get("status")
@@ -145,6 +142,7 @@ def change_status(interview_id: str | None = None, new_status: str | None = None
 
 
 @frappe.whitelist()
+@employer_required
 def list_interviews() -> dict:
     """Return a paginated list of Interviews."""
     try:
@@ -175,6 +173,7 @@ def list_interviews() -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def search_interviews() -> dict:
     """Search Interview records across candidate, company, job_opening, interviewer, scheduled_on, status."""
     try:

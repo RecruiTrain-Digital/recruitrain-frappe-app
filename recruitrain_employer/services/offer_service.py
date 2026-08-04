@@ -20,7 +20,7 @@ All public methods on ``OfferService`` are called from the API layer.
 from __future__ import annotations
 
 import frappe
-from frappe.exceptions import LinkExistsError
+from frappe.exceptions import DuplicateEntryError, LinkExistsError
 
 from recruitrain_employer.utils.constants import (
     DEFAULT_PAGE,
@@ -33,7 +33,12 @@ from recruitrain_employer.utils.constants import (
 from recruitrain_employer.utils.exceptions import (
     ATSConflictError,
     ATSNotFoundError,
+    ATSPermissionError,
     ATSValidationError,
+)
+from recruitrain_employer.utils.permissions import (
+    get_current_company,
+    is_company_member,
 )
 from recruitrain_employer.validators.offer_validator import (
     ALLOWED_OFFER_STATUSES,
@@ -112,16 +117,11 @@ class OfferService:
         self._validator = OfferValidator()
 
     def create_offer(self, data: dict) -> dict:
-        """Create a new Offer record.
-
-        Determines candidate, company, and job_opening from the linked Interview or Job Application.
-        Prevents duplicate active offers for the same Job Application / Interview.
-        """
+        """Create a new Offer record."""
         self._validator.validate_create(data)
 
         payload = dict(data)
 
-        # Normalize field aliases
         if "salary" in payload and "offered_salary" not in payload:
             payload["offered_salary"] = payload["salary"]
         if "start_date" in payload and "joining_date" not in payload:
@@ -129,7 +129,6 @@ class OfferService:
         if "status" in payload and "offer_status" not in payload:
             payload["offer_status"] = payload["status"]
 
-        # 1. Derive Job Application from Interview if provided
         job_app_id = payload.get("job_application")
         interview_id = payload.get("interview")
 
@@ -138,7 +137,6 @@ class OfferService:
             job_app_id = interview_doc.job_application
             payload["job_application"] = job_app_id
 
-        # 2. Derive Candidate, Company, Job Opening from Job Application
         if job_app_id:
             app_doc = frappe.get_doc(DOCTYPE_JOB_APPLICATION, job_app_id)
             if not payload.get("candidate"):
@@ -148,10 +146,11 @@ class OfferService:
             if not payload.get("company"):
                 payload["company"] = app_doc.company
 
-        # 3. Check for active duplicate offer
+        # Enforce Company Scoping
+        self._assert_company_access(payload.get("company"))
+
         self._assert_no_active_offer(payload.get("job_application"))
 
-        # Default values
         if not payload.get("offer_status"):
             payload["offer_status"] = "Draft"
         if not payload.get("offer_date"):
@@ -161,10 +160,13 @@ class OfferService:
 
         doc = frappe.new_doc(DOCTYPE_OFFER)
         self._apply_changed_fields(doc, payload)
-        doc.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-        # TODO: Log offer creation to Activity Log via ActivityLogService.
+        try:
+            doc.insert(ignore_permissions=True)
+        except DuplicateEntryError as exc:
+            raise ATSConflictError(
+                f"Offer conflict during creation.",
+                details={"offer_name": payload.get("offer_name")},
+            ) from exc
 
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
 
@@ -174,18 +176,17 @@ class OfferService:
             raise ATSValidationError("offer_id is required.", field="offer_id")
 
         doc = self._get_or_raise(offer_id)
+        self._assert_company_access(doc.company)
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
 
     def update_offer(self, offer_id: str, data: dict) -> dict:
-        """Update mutable fields of an existing Offer record.
-
-        Uses changed-field tracking and skips doc.save() if nothing changed.
-        """
+        """Update mutable fields of an existing Offer record."""
         if not offer_id:
             raise ATSValidationError("offer_id is required.", field="offer_id")
 
         self._validator.validate_update(data)
         doc = self._get_or_raise(offer_id)
+        self._assert_company_access(doc.company)
 
         payload = dict(data)
         if "salary" in payload and "offered_salary" not in payload:
@@ -197,9 +198,13 @@ class OfferService:
 
         changed_fields = self._apply_changed_fields(doc, payload)
         if changed_fields:
-            doc.save(ignore_permissions=True)
-            frappe.db.commit()
-            # TODO: Log changed_fields to Activity Log via ActivityLogService.
+            try:
+                doc.save(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    f"Offer conflict during update.",
+                    details={"offer_id": offer_id},
+                ) from exc
 
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
 
@@ -208,7 +213,8 @@ class OfferService:
         if not offer_id:
             raise ATSValidationError("offer_id is required.", field="offer_id")
 
-        self._get_or_raise(offer_id)
+        doc = self._get_or_raise(offer_id)
+        self._assert_company_access(doc.company)
 
         try:
             frappe.delete_doc(
@@ -217,8 +223,6 @@ class OfferService:
                 ignore_permissions=True,
                 force=False,
             )
-            frappe.db.commit()
-            # TODO: Replace hard delete with archive workflow in Offer Lifecycle sprint.
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Offer '{offer_id}' cannot be deleted because it is referenced by linked records.",
@@ -274,10 +278,12 @@ class OfferService:
         order_clause = self._sanitise_order_by(order_by, order_dir)
         orm_filters = self._build_filters(filters or {})
 
-        term = f"%{search.strip().lower()}%"
+        escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        total = frappe.db.count(DOCTYPE_OFFER, filters=orm_filters)
+        # Fix Priority 4: Ensure db.count uses both filters and or_filters
+        total = frappe.db.count(DOCTYPE_OFFER, filters=orm_filters, or_filters=or_filters)
 
         records = frappe.get_list(
             DOCTYPE_OFFER,
@@ -307,6 +313,7 @@ class OfferService:
 
         self._validator.validate_status(new_status)
         doc = self._get_or_raise(offer_id)
+        self._assert_company_access(doc.company)
 
         frappe.db.set_value(
             DOCTYPE_OFFER,
@@ -315,9 +322,6 @@ class OfferService:
             new_status,
             update_modified=True,
         )
-        frappe.db.commit()
-
-        # TODO: Log status change to Activity Log via ActivityLogService.
 
         doc.reload()
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
@@ -335,6 +339,20 @@ class OfferService:
                 name=offer_id,
             )
         return frappe.get_doc(DOCTYPE_OFFER, offer_id)
+
+    @staticmethod
+    def _assert_company_access(company: str | None) -> None:
+        """Assert user has permission to access records of company."""
+        if not company:
+            return
+        if getattr(frappe.session, "user", "") == "Administrator":
+            return
+        current_comp = get_current_company()
+        if company != current_comp:
+            raise ATSPermissionError(
+                f"Cross-company access prohibited. Record belongs to '{company}', active user belongs to '{current_comp}'.",
+                details={"record_company": company, "user_company": current_comp},
+            )
 
     def _assert_no_active_offer(self, job_application_id: str | None) -> None:
         """Raise ATSConflictError if an active offer (Draft, Sent, Accepted) exists."""
@@ -376,8 +394,9 @@ class OfferService:
     def _apply_changed_fields(doc, data: dict) -> dict:
         """Apply changed fields to doc."""
         changed: dict = {}
+        meta = frappe.get_meta(doc.doctype)
         for field, new_value in data.items():
-            if not hasattr(doc, field):
+            if not meta.has_field(field):
                 continue
             current_value = doc.get(field)
             if current_value != new_value:
@@ -385,19 +404,21 @@ class OfferService:
                 changed[field] = new_value
         return changed
 
-    @staticmethod
-    def _build_filters(filters: dict) -> dict:
-        """Construct ORM filters for Offer queries."""
+    def _build_filters(self, filters: dict) -> dict:
+        """Construct ORM filters for Offer queries with company scoping."""
         orm: dict = {}
+
+        # Priority 2: Automatic Company Scoping
+        if getattr(frappe.session, "user", "") != "Administrator":
+            orm["company"] = get_current_company()
+        elif filters.get("company"):
+            orm["company"] = filters["company"]
 
         if filters.get("job_application"):
             orm["job_application"] = filters["job_application"]
 
         if filters.get("candidate"):
             orm["candidate"] = filters["candidate"]
-
-        if filters.get("company"):
-            orm["company"] = filters["company"]
 
         if filters.get("job_opening"):
             orm["job_opening"] = filters["job_opening"]

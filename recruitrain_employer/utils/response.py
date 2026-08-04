@@ -5,45 +5,10 @@
 recruitrain_employer.utils.response
 =====================================
 
-Standardised API Response Builders.
+Standardised API Response Builders with HTTP Status Code Mapping.
 
 All API endpoints in ``recruitrain_employer.api`` MUST use these helpers to
-ensure a consistent response envelope across all endpoints.
-
-Response Envelope Format
-------------------------
-
-Success::
-
-    {
-        "success": true,
-        "data": <payload>,
-        "message": "<optional human-readable message>"
-    }
-
-Error::
-
-    {
-        "success": false,
-        "error": {
-            "code": "<ERROR_CODE>",
-            "message": "<human-readable message>",
-            "details": <optional extra context>
-        }
-    }
-
-Paginated Success::
-
-    {
-        "success": true,
-        "data": [...],
-        "meta": {
-            "page": <int>,
-            "page_size": <int>,
-            "total": <int>,
-            "total_pages": <int>
-        }
-    }
+ensure a consistent response envelope and correct HTTP status code header.
 """
 
 from __future__ import annotations
@@ -51,28 +16,23 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import frappe
+
+STATUS_CODE_MAP: dict[str, int] = {
+    "VALIDATION_ERROR": 400,
+    "AUTHENTICATION_ERROR": 401,
+    "PERMISSION_DENIED": 403,
+    "NOT_FOUND": 404,
+    "CONFLICT": 409,
+    "INTERNAL_ERROR": 500,
+}
+
 
 def success_response(data: Any = None, message: str = "") -> dict:
-    """Build a standardised success response envelope.
+    """Build a standardised success response envelope."""
+    if hasattr(frappe, "response"):
+        frappe.response["http_status_code"] = 200
 
-    Parameters
-    ----------
-    data : Any, optional
-        The payload to include in the ``data`` key.  Can be a dict, list,
-        string, or ``None``.
-    message : str, optional
-        A human-readable status message (e.g. ``"Record created successfully"``).
-
-    Returns
-    -------
-    dict
-        A response dict ready to be returned from a ``@frappe.whitelist()`` endpoint.
-
-    Example
-    -------
-    >>> success_response({"name": "JOB-0001"}, "Job Opening created.")
-    {"success": True, "data": {"name": "JOB-0001"}, "message": "Job Opening created."}
-    """
     response: dict[str, Any] = {
         "success": True,
         "data": data,
@@ -82,36 +42,12 @@ def success_response(data: Any = None, message: str = "") -> dict:
     return response
 
 
-def error_response(code: str, message: str, details: Any = None) -> dict:
-    """Build a standardised error response envelope.
+def error_response(code: str, message: str, details: Any = None, http_status_code: int | None = None) -> dict:
+    """Build a standardised error response envelope and set HTTP status code."""
+    status_code = http_status_code or STATUS_CODE_MAP.get(code, 400)
+    if hasattr(frappe, "response"):
+        frappe.response["http_status_code"] = status_code
 
-    Parameters
-    ----------
-    code : str
-        A machine-readable error code (e.g. ``"VALIDATION_ERROR"``,
-        ``"NOT_FOUND"``, ``"PERMISSION_DENIED"``).
-    message : str
-        A human-readable error description.
-    details : Any, optional
-        Additional context (e.g. field-level validation errors as a dict).
-
-    Returns
-    -------
-    dict
-        A response dict ready to be returned from a ``@frappe.whitelist()`` endpoint.
-
-    Example
-    -------
-    >>> error_response("VALIDATION_ERROR", "Email is required.", {"field": "email"})
-    {
-        "success": False,
-        "error": {
-            "code": "VALIDATION_ERROR",
-            "message": "Email is required.",
-            "details": {"field": "email"}
-        }
-    }
-    """
     error_body: dict[str, Any] = {
         "code": code,
         "message": message,
@@ -126,38 +62,10 @@ def error_response(code: str, message: str, details: Any = None) -> dict:
 
 
 def paginated_response(data: list, page: int, page_size: int, total: int) -> dict:
-    """Build a standardised paginated success response envelope.
+    """Build a standardised paginated success response envelope."""
+    if hasattr(frappe, "response"):
+        frappe.response["http_status_code"] = 200
 
-    Parameters
-    ----------
-    data : list
-        The list of records for the current page.
-    page : int
-        The current page number (1-indexed).
-    page_size : int
-        Number of records per page.
-    total : int
-        Total number of matching records across all pages.
-
-    Returns
-    -------
-    dict
-        A response dict with ``data`` and ``meta`` pagination info.
-
-    Example
-    -------
-    >>> paginated_response([...], page=1, page_size=20, total=45)
-    {
-        "success": True,
-        "data": [...],
-        "meta": {
-            "page": 1,
-            "page_size": 20,
-            "total": 45,
-            "total_pages": 3
-        }
-    }
-    """
     total_pages = math.ceil(total / page_size) if page_size > 0 else 0
 
     return {
@@ -173,42 +81,20 @@ def paginated_response(data: list, page: int, page_size: int, total: int) -> dic
 
 
 def not_found_response(doctype: str, name: str) -> dict:
-    """Shortcut to build a NOT_FOUND error response.
-
-    Parameters
-    ----------
-    doctype : str
-        The DocType that was not found (e.g. ``"Job Opening"``).
-    name : str
-        The name/ID that was looked up.
-
-    Returns
-    -------
-    dict
-        An error response with code ``"NOT_FOUND"``.
-    """
+    """Shortcut to build a NOT_FOUND error response (HTTP 404)."""
     return error_response(
         code="NOT_FOUND",
         message=f"{doctype} '{name}' was not found.",
         details={"doctype": doctype, "name": name},
+        http_status_code=404,
     )
 
 
 def permission_denied_response(reason: str = "") -> dict:
-    """Shortcut to build a PERMISSION_DENIED error response.
-
-    Parameters
-    ----------
-    reason : str, optional
-        Additional context about why access was denied.
-
-    Returns
-    -------
-    dict
-        An error response with code ``"PERMISSION_DENIED"``.
-    """
+    """Shortcut to build a PERMISSION_DENIED error response (HTTP 403)."""
     message = reason if reason else "You do not have permission to perform this action."
     return error_response(
         code="PERMISSION_DENIED",
         message=message,
+        http_status_code=403,
     )
