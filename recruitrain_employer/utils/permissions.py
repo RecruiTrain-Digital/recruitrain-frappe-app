@@ -32,9 +32,11 @@ import frappe
 from recruitrain_employer.utils.constants import DOCTYPE_EMPLOYER_USER
 from recruitrain_employer.utils.exceptions import ATSPermissionError
 
+# Role hierarchy maps Employer User DocType ``role`` field options to privilege
+# levels. Values must match the Select options in ``employer_user.json`` exactly.
+# Higher number = higher privilege.
 ROLE_HIERARCHY: dict[str, int] = {
     "Administrator": 100,
-    "Employer Admin": 90,
     "HR Manager": 80,
     "Recruiter": 70,
     "Hiring Manager": 60,
@@ -50,15 +52,7 @@ def get_current_employer_user() -> dict:
     if user == "Guest":
         raise ATSPermissionError("Authentication required. Please log in.")
 
-    # Administrator session fallback
-    if user == "Administrator":
-        return {
-            "user": "Administrator",
-            "company": "Default Company",
-            "role": "Employer Admin",
-            "status": "Active",
-        }
-
+    # Check for an active Employer User record for this user first
     records = frappe.get_all(
         DOCTYPE_EMPLOYER_USER,
         filters={"user": user, "status": "Active"},
@@ -66,13 +60,26 @@ def get_current_employer_user() -> dict:
         limit=1,
     )
 
-    if not records:
-        raise ATSPermissionError(
-            f"User '{user}' is not registered as an active Employer User.",
-            details={"user": user},
-        )
+    if records:
+        return records[0]
 
-    return records[0]
+    # Administrator session fallback — use "Default Company" if it exists, else query existing Company
+    if user == "Administrator":
+        company = "Default Company"
+        if not frappe.db.exists("Company", company):
+            company = frappe.db.get_value("Company", {}, "name") or "RecruiTrain"
+
+        return {
+            "user": "Administrator",
+            "company": company,
+            "role": "Administrator",
+            "status": "Active",
+        }
+
+    raise ATSPermissionError(
+        f"User '{user}' is not registered as an active Employer User.",
+        details={"user": user},
+    )
 
 
 def get_current_company() -> str:
@@ -124,8 +131,8 @@ def require_company_member(company: str) -> None:
 
 
 def require_admin() -> None:
-    """Assert the current user has the Employer Admin role."""
-    require_role("Employer Admin")
+    """Assert the current user has the Administrator role (highest privilege)."""
+    require_role("Administrator")
 
 
 def employer_required(func: Callable) -> Callable:

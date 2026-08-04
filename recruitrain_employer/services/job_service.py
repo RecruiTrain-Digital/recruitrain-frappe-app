@@ -104,10 +104,13 @@ from recruitrain_employer.validators.job_validator import JobValidator
 SEARCHABLE_FIELDS: tuple[str, ...] = (
     "job_title",
     "job_code",
-    "department",
-    "employment_type",
-    "location",
     "company",
+    "department",
+    "profession",
+    "employment_type",
+    "city",
+    "state",
+    "country",
 )
 
 #: Fields callers may pass to ``order_by``.
@@ -118,13 +121,21 @@ ALLOWED_SORT_FIELDS: frozenset[str] = frozenset(
         "creation",
         "modified",
         "job_title",
+        "job_code",
         "company",
         "department",
+        "profession",
         "employment_type",
-        "location",
         "status",
-        "opening_date",
-        "closing_date",
+        "target_joining_date",
+        "minimum_salary",
+        "maximum_salary",
+        "number_of_openings",
+        "minimum_experience",
+        "maximum_experience",
+        "city",
+        "state",
+        "country",
     ]
 )
 
@@ -154,34 +165,56 @@ _LIST_FIELDS: list[str] = [
     "job_code",
     "company",
     "department",
+    "profession",
     "employment_type",
-    "location",
+    "city",
+    "state",
+    "country",
+    "remote",
+    "hybrid",
     "status",
-    "opening_date",
-    "closing_date",
     "target_joining_date",
+    "currency",
     "minimum_salary",
     "maximum_salary",
     "number_of_openings",
+    "published",
+    "featured_job",
 ]
 
 #: Fields returned in a full Job Opening detail response.
 #: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
-_DETAIL_FIELDS: list[str] = _LIST_FIELDS + [
-    "description",
-    "job_summary",
-    "responsibilities",
-    "requirements",
-    "benefits",
-    "salary_min",
-    "salary_max",
+_DETAIL_FIELDS: list[str] = [
+    "name",
+    "job_title",
+    "job_code",
+    "company",
+    "department",
+    "profession",
+    "employment_type",
+    "industry",
+    "number_of_openings",
+    "hiring_manager",
+    "recruiter",
+    "target_joining_date",
+    "minimum_experience",
+    "maximum_experience",
     "currency",
-    "number_of_positions",
+    "minimum_salary",
+    "maximum_salary",
+    "salary_negotiable",
     "country",
     "state",
     "city",
     "remote",
     "hybrid",
+    "job_summary",
+    "responsibilities",
+    "requirements",
+    "benefits",
+    "status",
+    "published",
+    "featured_job",
 ]
 
 
@@ -279,7 +312,8 @@ class JobService:
             raise ATSValidationError("job_id is required.", field="job_id")
 
         doc = self._get_or_raise(job_id)
-        return self._serialize_job(doc, fields=_DETAIL_FIELDS)
+        metrics = self._get_batch_ats_metrics([job_id])
+        return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
 
     def update_job(self, job_id: str, data: dict) -> dict:
         """Apply a partial update to an existing Job Opening record.
@@ -332,7 +366,8 @@ class JobService:
                 ) from exc
             # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
-        return self._serialize_job(doc, fields=_DETAIL_FIELDS)
+        metrics = self._get_batch_ats_metrics([job_id])
+        return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
 
     # TODO: Replace hard delete with an archive workflow during the Job
     #       Lifecycle sprint.  Most ATS systems never permanently delete job
@@ -441,8 +476,16 @@ class JobService:
             ignore_permissions=True,
         )
 
+        job_ids = [r["name"] for r in records if "name" in r]
+        batch_metrics = self._get_batch_ats_metrics(job_ids)
+
+        data = [
+            self._serialize_job(r, fields=_LIST_FIELDS, metrics=batch_metrics.get(r.get("name")))
+            for r in records
+        ]
+
         return {
-            "data": [dict(r) for r in records],
+            "data": data,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -517,8 +560,16 @@ class JobService:
             ignore_permissions=True,
         )
 
+        job_ids = [r["name"] for r in records if "name" in r]
+        batch_metrics = self._get_batch_ats_metrics(job_ids)
+
+        data = [
+            self._serialize_job(r, fields=_LIST_FIELDS, metrics=batch_metrics.get(r.get("name")))
+            for r in records
+        ]
+
         return {
-            "data": [dict(r) for r in records],
+            "data": data,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -573,74 +624,163 @@ class JobService:
                 details={"field": "job_code", "value": job_code},
             )
 
+    def publish_job(self, job_id: str) -> dict:
+        """Publish a Job Opening, setting published=1 and status='Open'."""
+        if not job_id:
+            raise ATSValidationError("job_id is required.", field="job_id")
+        doc = self._get_or_raise(job_id)
+        doc.published = 1
+        doc.status = "Open"
+        doc.save(ignore_permissions=True)
+        metrics = self._get_batch_ats_metrics([job_id])
+        return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
+
+    def close_job(self, job_id: str) -> dict:
+        """Close a Job Opening, setting status='Closed'."""
+        if not job_id:
+            raise ATSValidationError("job_id is required.", field="job_id")
+        doc = self._get_or_raise(job_id)
+        doc.status = "Closed"
+        doc.save(ignore_permissions=True)
+        metrics = self._get_batch_ats_metrics([job_id])
+        return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
+
     @staticmethod
-    def _serialize_job(doc, fields: list[str]) -> dict:
-        """Serialise a Frappe Job Opening Document to a plain, JSON-safe dict.
+    def _get_batch_ats_metrics(job_ids: list[str]) -> dict[str, dict[str, int]]:
+        """Calculate aggregated ATS summary metrics for a list of Job Opening IDs in batch.
 
-        Named ``_serialize_job`` rather than a generic ``_doc_to_dict`` because
-        this helper is intentionally scoped to the Job Opening domain.  Each
-        service module defines its own ``_serialize_*`` helper, making the origin
-        immediately obvious and allowing domain-specific post-processing without
-        coupling services together.
-
-        Metadata Exclusion
-        ------------------
-        This method applies a second exclusion gate: any field present in
-        ``_FRAPPE_METADATA_FIELDS`` is stripped from the output regardless of
-        whether it appears in ``fields``.  This provides defence-in-depth against
-        accidental exposure of Frappe system data.
-
-        Parameters
-        ----------
-        doc : frappe.Document
-            The Job Opening document to serialise.
-        fields : list[str]
-            The business-facing field names to include in the output dict.
-
-        Returns
-        -------
-        dict
-            A plain Python dict containing only non-metadata fields whose names
-            appear in ``fields``.
+        Avoids N+1 query overhead by grouping counts across Job Application,
+        Interview, and Offer records in 3 aggregated DB queries.
         """
-        return {
-            field: doc.get(field)
-            for field in fields
-            if field not in _FRAPPE_METADATA_FIELDS
+        metrics = {
+            jid: {
+                "application_count": 0,
+                "shortlisted_count": 0,
+                "interview_count": 0,
+                "offer_count": 0,
+                "hired_count": 0,
+                "rejected_count": 0,
+            }
+            for jid in job_ids
+            if jid
         }
+        if not metrics:
+            return metrics
+
+        valid_ids = list(metrics.keys())
+
+        # 1. Job Application metrics
+        app_rows = frappe.db.sql(
+            """
+            SELECT job_opening, current_stage, COUNT(*) AS cnt
+            FROM `tabJob Application`
+            WHERE job_opening IN %s
+            GROUP BY job_opening, current_stage
+            """,
+            (valid_ids,),
+            as_dict=True,
+        )
+        for row in app_rows:
+            jid = row.get("job_opening")
+            stage = row.get("current_stage")
+            cnt = int(row.get("cnt") or 0)
+            if jid in metrics:
+                metrics[jid]["application_count"] += cnt
+                if stage == "Shortlisted":
+                    metrics[jid]["shortlisted_count"] += cnt
+                elif stage == "Hired":
+                    metrics[jid]["hired_count"] += cnt
+                elif stage == "Rejected":
+                    metrics[jid]["rejected_count"] += cnt
+
+        # 2. Interview metrics
+        interview_rows = frappe.db.sql(
+            """
+            SELECT job_opening, COUNT(*) AS cnt
+            FROM `tabInterview`
+            WHERE job_opening IN %s
+            GROUP BY job_opening
+            """,
+            (valid_ids,),
+            as_dict=True,
+        )
+        for row in interview_rows:
+            jid = row.get("job_opening")
+            cnt = int(row.get("cnt") or 0)
+            if jid in metrics:
+                metrics[jid]["interview_count"] = cnt
+
+        # 3. Offer metrics
+        offer_rows = frappe.db.sql(
+            """
+            SELECT job_opening, COUNT(*) AS cnt
+            FROM `tabOffer`
+            WHERE job_opening IN %s
+            GROUP BY job_opening
+            """,
+            (valid_ids,),
+            as_dict=True,
+        )
+        for row in offer_rows:
+            jid = row.get("job_opening")
+            cnt = int(row.get("cnt") or 0)
+            if jid in metrics:
+                metrics[jid]["offer_count"] = cnt
+
+        return metrics
+
+    @staticmethod
+    def _serialize_job(doc, fields: list[str], metrics: dict | None = None) -> dict:
+        """Serialise a Frappe Job Opening Document to a plain, JSON-safe dict enriched with ATS summary metrics."""
+        if isinstance(doc, dict):
+            data = {
+                field: doc.get(field)
+                for field in fields
+                if field not in _FRAPPE_METADATA_FIELDS and field in doc
+            }
+        else:
+            data = {
+                field: doc.get(field)
+                for field in fields
+                if field not in _FRAPPE_METADATA_FIELDS
+            }
+
+        # Frontend contract aliases
+        if "job_summary" in data and "description" not in data:
+            data["description"] = data["job_summary"]
+        if "minimum_salary" in data and "salary_min" not in data:
+            data["salary_min"] = data["minimum_salary"]
+        if "maximum_salary" in data and "salary_max" not in data:
+            data["salary_max"] = data["maximum_salary"]
+        if "number_of_openings" in data and "number_of_positions" not in data:
+            data["number_of_positions"] = data["number_of_openings"]
+
+        # Synthetic location display string
+        loc_parts = [str(data[k]) for k in ("city", "state", "country") if data.get(k)]
+        if loc_parts:
+            data["location"] = ", ".join(loc_parts)
+        elif data.get("remote"):
+            data["location"] = "Remote"
+        else:
+            data["location"] = data.get("location", None)
+
+        default_metrics = {
+            "application_count": 0,
+            "shortlisted_count": 0,
+            "interview_count": 0,
+            "offer_count": 0,
+            "hired_count": 0,
+            "rejected_count": 0,
+        }
+        if metrics:
+            default_metrics.update(metrics)
+
+        data.update(default_metrics)
+        return data
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:
-        """Apply only genuinely changed fields onto a Frappe Document object.
-
-        Compares each incoming value against the current document value and
-        only calls ``setattr`` when they differ.  This prevents Frappe from
-        tracking unnecessary dirty fields and keeps the returned change dict
-        clean for future Activity Log diffing.
-
-        Parameters
-        ----------
-        doc : frappe.Document
-            The document to mutate in-place.
-        data : dict
-            Field/value pairs to potentially apply.
-
-        Returns
-        -------
-        dict
-            A ``{field: new_value}`` dict containing only the fields that
-            were actually changed.  An empty dict means no fields changed.
-
-        Notes
-        -----
-        Unknown fields (not present as attributes on the document) are
-        silently skipped to avoid attribute errors.
-
-        The returned dict is intended for future Activity Log integration::
-
-            changed = self._apply_changed_fields(doc, data)
-            # TODO: ActivityLogService.log_update(job_id, changed)
-        """
+        """Apply only genuinely changed fields onto a Frappe Document object."""
         changed: dict = {}
         meta = frappe.get_meta(doc.doctype)
 
@@ -668,32 +808,24 @@ class JobService:
 
     @staticmethod
     def _build_filters(filters: dict) -> dict:
-        """Construct a Frappe ORM filter dict from the caller-supplied filter map.
+        """Construct a Frappe ORM filter dict using strictly valid DocType schema fields.
 
         Supported Filter Keys
         ---------------------
         - ``company``          (str) — filter by Company.
         - ``department``       (str) — filter by Department.
+        - ``profession``       (str) — filter by Profession.
         - ``employment_type``  (str) — filter by Employment Type.
+        - ``industry``         (str) — filter by Industry.
         - ``status``           (str) — filter by Job Opening status.
-        - ``location``         (str) — filter by location.
-
-        Adding New Filters
-        ------------------
-        Append a new ``if filters.get("<key>"):`` block here.  The API method
-        signatures and ``list_jobs`` / ``search_jobs`` signatures do not need
-        to change.
-
-        Parameters
-        ----------
-        filters : dict
-            Caller-supplied key/value pairs from the API layer.
-
-        Returns
-        -------
-        dict
-            Frappe-compatible filter dict ready for ``frappe.get_list`` /
-            ``frappe.db.count``.
+        - ``city``             (str) — filter by City.
+        - ``state``            (str) — filter by State.
+        - ``country``          (str) — filter by Country.
+        - ``remote``           (int/bool) — filter remote.
+        - ``hybrid``           (int/bool) — filter hybrid.
+        - ``published``        (int/bool) — filter published status.
+        - ``featured_job``     (int/bool) — filter featured status.
+        - ``location``         (str) — searched via city column.
         """
         orm: dict = {}
 
@@ -703,18 +835,41 @@ class JobService:
         if filters.get("department"):
             orm["department"] = filters["department"]
 
+        if filters.get("profession"):
+            orm["profession"] = filters["profession"]
+
         if filters.get("employment_type"):
             orm["employment_type"] = filters["employment_type"]
+
+        if filters.get("industry"):
+            orm["industry"] = filters["industry"]
 
         if filters.get("status"):
             orm["status"] = filters["status"]
 
-        if filters.get("location"):
-            orm["location"] = filters["location"]
+        if filters.get("city"):
+            orm["city"] = filters["city"]
 
-        # TODO: Add salary range filter in a future sprint.
-        # if filters.get("salary_min"):
-        #     orm["salary_max"] = [">=", filters["salary_min"]]
+        if filters.get("state"):
+            orm["state"] = filters["state"]
+
+        if filters.get("country"):
+            orm["country"] = filters["country"]
+
+        if filters.get("remote") is not None:
+            orm["remote"] = filters["remote"]
+
+        if filters.get("hybrid") is not None:
+            orm["hybrid"] = filters["hybrid"]
+
+        if filters.get("published") is not None:
+            orm["published"] = filters["published"]
+
+        if filters.get("featured_job") is not None:
+            orm["featured_job"] = filters["featured_job"]
+
+        if filters.get("location") and not (filters.get("city") or filters.get("state") or filters.get("country")):
+            orm["city"] = ["like", f"%{filters['location']}%"]
 
         return orm
 

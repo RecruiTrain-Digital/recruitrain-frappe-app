@@ -230,11 +230,27 @@ class JobApplicationService:
         TODO: Log application creation to Activity Log via ActivityLogService.
         TODO: Notify employer team of new application via NotificationService.
         """
-        self._validator.validate_create(data)
-        self._assert_unique_application(data["candidate"], data["job_opening"])
+        payload = dict(data)
+        self._validator.validate_create(payload)
+        self._assert_unique_application(payload["candidate"], payload["job_opening"])
+
+        applied_on_val = payload.get("applied_on") or payload.get("application_date")
+        if not applied_on_val:
+            applied_on_val = frappe.utils.today()
+        else:
+            if hasattr(applied_on_val, "strftime"):
+                applied_on_val = applied_on_val.strftime("%Y-%m-%d")
+            else:
+                applied_on_val = str(applied_on_val).strip()
+
+        payload["applied_on"] = applied_on_val
+        payload["application_date"] = applied_on_val
 
         doc = frappe.new_doc(DOCTYPE_JOB_APPLICATION)
-        self._apply_changed_fields(doc, data)
+        self._apply_changed_fields(doc, payload)
+        if not doc.get("applied_on"):
+            doc.applied_on = applied_on_val
+
         try:
             doc.insert(ignore_permissions=True)
         except DuplicateEntryError as exc:
@@ -684,11 +700,20 @@ class JobApplicationService:
             A plain Python dict containing only non-metadata fields whose
             names appear in ``fields``.
         """
-        return {
+        data = {
             field: doc.get(field)
             for field in fields
             if field not in _FRAPPE_METADATA_FIELDS
         }
+        raw_applied = data.get("applied_on") or (str(doc.get("creation"))[:10] if doc.get("creation") else None) or frappe.utils.today()
+        if hasattr(raw_applied, "strftime"):
+            iso_applied = raw_applied.strftime("%Y-%m-%d")
+        else:
+            iso_applied = str(raw_applied)[:10]
+
+        data["applied_on"] = iso_applied
+        data["application_date"] = iso_applied
+        return data
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:

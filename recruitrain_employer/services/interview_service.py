@@ -263,8 +263,15 @@ class InterviewService:
         term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        # Fix Priority 4: Ensure db.count uses both filters and or_filters
-        total = frappe.db.count(DOCTYPE_INTERVIEW, filters=orm_filters, or_filters=or_filters)
+        total = len(
+            frappe.get_list(
+                DOCTYPE_INTERVIEW,
+                filters=orm_filters,
+                or_filters=or_filters,
+                fields=["name"],
+                ignore_permissions=True,
+            )
+        )
 
         records = frappe.get_list(
             DOCTYPE_INTERVIEW,

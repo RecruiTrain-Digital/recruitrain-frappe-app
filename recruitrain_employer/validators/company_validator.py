@@ -66,18 +66,23 @@ from recruitrain_employer.utils.exceptions import ATSValidationError
 # ---------------------------------------------------------------------------
 
 #: Fields a caller may supply when creating a new Company.
+#: All names must correspond to real fieldnames in company.json.
 COMPANY_CREATABLE_FIELDS: frozenset[str] = frozenset(
     [
         "company_name",
+        "legal_name",
+        "company_code",
         "industry",
         "email",
         "phone",
+        "alternate_phone",
+        "hr_email",
+        "support_email",
         "website",
         "description",
         "country",
         "state",
         "city",
-        "address",
         "address_line_1",
         "address_line_2",
         "postal_code",
@@ -86,24 +91,28 @@ COMPANY_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "company_size",
         "linkedin",
         "twitter",
-        "linkedin_url",
-        "twitter_url",
+        "facebook",
+        "instagram",
     ]
 )
 
 #: Fields a caller may modify on an existing Company record.
 #: ``company_name`` is excluded — use a dedicated rename workflow (future sprint).
 #: Email is excluded — use a dedicated verified email-change flow (future sprint).
+#: All names must correspond to real fieldnames in company.json.
 COMPANY_UPDATABLE_FIELDS: frozenset[str] = frozenset(
     [
+        "legal_name",
         "industry",
         "phone",
+        "alternate_phone",
+        "hr_email",
+        "support_email",
         "website",
         "description",
         "country",
         "state",
         "city",
-        "address",
         "address_line_1",
         "address_line_2",
         "postal_code",
@@ -112,8 +121,8 @@ COMPANY_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "company_size",
         "linkedin",
         "twitter",
-        "linkedin_url",
-        "twitter_url",
+        "facebook",
+        "instagram",
     ]
 )
 
@@ -136,6 +145,11 @@ _URL_SCHEME_RE: re.Pattern = re.compile(r"^https?://", re.IGNORECASE)
 #: Deliberately permissive; rejects obvious non-URLs (no dot, no TLD).
 _URL_DOMAIN_RE: re.Pattern = re.compile(
     r"^https?://[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)+", re.IGNORECASE
+)
+
+#: Allowed status values — must mirror the Select options in ``company.json`` exactly.
+COMPANY_STATUS_OPTIONS: frozenset[str] = frozenset(
+    ["Draft", "Pending Verification", "Active", "Suspended", "Inactive"]
 )
 
 
@@ -212,14 +226,17 @@ class CompanyValidator:
         if data.get("linkedin"):
             self._validate_url(data["linkedin"], field="linkedin")
 
-        if data.get("linkedin_url"):
-            self._validate_url(data["linkedin_url"], field="linkedin_url")
-
         if data.get("twitter"):
             self._validate_url(data["twitter"], field="twitter")
 
-        if data.get("twitter_url"):
-            self._validate_url(data["twitter_url"], field="twitter_url")
+        if data.get("facebook"):
+            self._validate_url(data["facebook"], field="facebook")
+
+        if data.get("instagram"):
+            self._validate_url(data["instagram"], field="instagram")
+
+        if data.get("status"):
+            self.validate_status(data["status"])
 
     def validate_update(self, data: dict) -> None:
         """Normalize and validate a Company update payload.
@@ -269,11 +286,20 @@ class CompanyValidator:
             data["website"] = self.normalize_website(data["website"])
             self.validate_website(data["website"])
 
-        if data.get("linkedin_url"):
-            self._validate_url(data["linkedin_url"], field="linkedin_url")
+        if data.get("linkedin"):
+            self._validate_url(data["linkedin"], field="linkedin")
 
-        if data.get("twitter_url"):
-            self._validate_url(data["twitter_url"], field="twitter_url")
+        if data.get("twitter"):
+            self._validate_url(data["twitter"], field="twitter")
+
+        if data.get("facebook"):
+            self._validate_url(data["facebook"], field="facebook")
+
+        if data.get("instagram"):
+            self._validate_url(data["instagram"], field="instagram")
+
+        if data.get("status"):
+            self.validate_status(data["status"])
 
     # ------------------------------------------------------------------
     # Normalization Methods (public — CompanyService may call directly)
@@ -472,6 +498,30 @@ class CompanyValidator:
                 f"'{url}' is not a valid website URL. "
                 "Example: https://company.com",
                 field="website",
+            )
+
+    def validate_status(self, status: str) -> None:
+        """Assert that ``status`` is one of the allowed Company status values.
+
+        Allowed values mirror the Select options in ``company.json``::
+
+            Draft | Pending Verification | Active | Suspended | Inactive
+
+        Parameters
+        ----------
+        status : str
+            The status string to validate.
+
+        Raises
+        ------
+        ATSValidationError
+            If the status value is not in the allowed set.
+        """
+        if status not in COMPANY_STATUS_OPTIONS:
+            raise ATSValidationError(
+                f"'{status}' is not a valid Company status. "
+                f"Allowed values: {', '.join(COMPANY_STATUS_OPTIONS)}.",
+                field="status",
             )
 
     # ------------------------------------------------------------------

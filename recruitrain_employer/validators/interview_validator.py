@@ -35,7 +35,6 @@ ALLOWED_INTERVIEW_STATUSES: list[str] = [
     "Rescheduled",
     "Completed",
     "Cancelled",
-    "No Show",
 ]
 
 #: Allowed Interview types supported by Interview DocType:
@@ -46,10 +45,6 @@ ALLOWED_INTERVIEW_TYPES: list[str] = [
     "HR",
     "Managerial",
     "Final",
-    "Phone Screen",
-    "Video Call",
-    "Panel",
-    "Onsite",
 ]
 
 #: Fields allowed when creating an Interview:

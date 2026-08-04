@@ -81,29 +81,38 @@ JOB_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "job_code",
         "company",
         "department",
+        "profession",
         "employment_type",
-        "location",
-        "description",
-        "job_summary",
-        "responsibilities",
-        "requirements",
-        "benefits",
-        "salary_min",
-        "salary_max",
-        "minimum_salary",
-        "maximum_salary",
-        "currency",
-        "status",
+        "industry",
+        "number_of_openings",
+        "number_of_positions",
+        "hiring_manager",
+        "recruiter",
+        "target_joining_date",
         "opening_date",
         "closing_date",
-        "target_joining_date",
-        "number_of_positions",
-        "number_of_openings",
+        "minimum_experience",
+        "maximum_experience",
+        "currency",
+        "minimum_salary",
+        "maximum_salary",
+        "salary_min",
+        "salary_max",
+        "salary_negotiable",
         "country",
         "state",
         "city",
+        "location",
         "remote",
         "hybrid",
+        "job_summary",
+        "description",
+        "responsibilities",
+        "requirements",
+        "benefits",
+        "status",
+        "published",
+        "featured_job",
     ]
 )
 
@@ -114,29 +123,38 @@ JOB_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "job_title",
         "job_code",
         "department",
+        "profession",
         "employment_type",
-        "location",
-        "description",
-        "job_summary",
-        "responsibilities",
-        "requirements",
-        "benefits",
-        "salary_min",
-        "salary_max",
-        "minimum_salary",
-        "maximum_salary",
-        "currency",
-        "status",
+        "industry",
+        "number_of_openings",
+        "number_of_positions",
+        "hiring_manager",
+        "recruiter",
+        "target_joining_date",
         "opening_date",
         "closing_date",
-        "target_joining_date",
-        "number_of_positions",
-        "number_of_openings",
+        "minimum_experience",
+        "maximum_experience",
+        "currency",
+        "minimum_salary",
+        "maximum_salary",
+        "salary_min",
+        "salary_max",
+        "salary_negotiable",
         "country",
         "state",
         "city",
+        "location",
         "remote",
         "hybrid",
+        "job_summary",
+        "description",
+        "responsibilities",
+        "requirements",
+        "benefits",
+        "status",
+        "published",
+        "featured_job",
     ]
 )
 
@@ -161,28 +179,7 @@ class JobValidator:
     # ------------------------------------------------------------------
 
     def validate_create(self, data: dict) -> None:
-        """Validate a Job Opening create payload.
-
-        Parameters
-        ----------
-        data : dict
-            Raw input data from the API request.
-
-        Raises
-        ------
-        ATSValidationError
-            If any required field is missing, empty, or has an invalid value.
-
-        Checks Performed (in order)
-        ---------------------------
-        1. All ``JOB_REQUIRED_FIELDS`` are present and non-empty.
-        2. Salary range is valid: ``salary_min <= salary_max`` (if both provided).
-        3. Opening/closing date constraint: ``opening_date <= closing_date`` (if both provided).
-        4. ``employment_type`` exists in the Employment Type master (if provided).
-        5. ``department`` exists in the Department master (if provided).
-        6. ``company`` exists in the Company master.
-        7. ``status`` is in ``ALLOWED_JOB_STATUSES`` (if provided).
-        """
+        """Validate a Job Opening create payload."""
         self.validate_required_fields(data, JOB_REQUIRED_FIELDS)
         self.validate_salary_range(data)
         self.validate_dates(data)
@@ -194,29 +191,7 @@ class JobValidator:
             self._validate_status(data["status"])
 
     def validate_update(self, data: dict) -> None:
-        """Validate a Job Opening update payload.
-
-        Parameters
-        ----------
-        data : dict
-            Partial Job Opening fields from the API request.  Must be non-empty.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``data`` is empty, contains non-updatable fields, or any
-            provided value is invalid.
-
-        Checks Performed (in order)
-        ---------------------------
-        1. ``data`` contains at least one field (no-op updates are rejected).
-        2. All keys in ``data`` are present in ``JOB_UPDATABLE_FIELDS``.
-        3. Salary range is valid (if both min and max are present after merge).
-        4. Date constraint is valid (if both dates are present).
-        5. ``employment_type`` exists (if provided).
-        6. ``department`` exists (if provided).
-        7. ``status`` is in ``ALLOWED_JOB_STATUSES`` (if provided).
-        """
+        """Validate a Job Opening update payload."""
         if not data:
             raise ATSValidationError(
                 "No update fields were provided. "
@@ -246,28 +221,16 @@ class JobValidator:
     def validate_required_fields(
         self, data: dict, required_fields: list[str]
     ) -> None:
-        """Assert that all fields in ``required_fields`` are present and non-empty.
-
-        Collects all missing fields before raising so the caller receives a
-        complete list in a single error rather than one field at a time.
-
-        Parameters
-        ----------
-        data : dict
-            The input payload to check.
-        required_fields : list[str]
-            Field names that must be present and have a truthy, non-whitespace value.
-
-        Raises
-        ------
-        ATSValidationError
-            Enumerating all missing or empty fields in the ``details`` payload.
-        """
-        missing = [
-            field
-            for field in required_fields
-            if not str(data.get(field, "")).strip()
-        ]
+        """Assert that all fields in ``required_fields`` are present and non-empty."""
+        missing = []
+        for field in required_fields:
+            val = data.get(field)
+            if field == "job_summary" and not val:
+                val = data.get("description")
+            elif field == "description" and not val:
+                val = data.get("job_summary")
+            if not str(val or "").strip():
+                missing.append(field)
         if missing:
             raise ATSValidationError(
                 f"The following required fields are missing or empty: "
@@ -276,37 +239,22 @@ class JobValidator:
             )
 
     def validate_salary_range(self, data: dict) -> None:
-        """Assert that ``salary_min <= salary_max`` when both are provided.
-
-        Neither field is individually required.  The constraint only applies
-        when both values are present in ``data``.  Negative values are
-        rejected unconditionally.
-
-        Parameters
-        ----------
-        data : dict
-            The input payload.  Keys examined: ``salary_min``, ``salary_max``.
-
-        Raises
-        ------
-        ATSValidationError
-            If either salary is negative, or if ``salary_min > salary_max``.
-        """
-        salary_min = data.get("salary_min")
-        salary_max = data.get("salary_max")
+        """Assert that ``salary_min <= salary_max`` (or minimum_salary <= maximum_salary) when both are provided."""
+        salary_min = data.get("minimum_salary") if data.get("minimum_salary") is not None else data.get("salary_min")
+        salary_max = data.get("maximum_salary") if data.get("maximum_salary") is not None else data.get("salary_max")
 
         if salary_min is not None:
             try:
                 salary_min = float(salary_min)
             except (TypeError, ValueError):
                 raise ATSValidationError(
-                    "salary_min must be a numeric value.",
-                    field="salary_min",
+                    "minimum_salary / salary_min must be a numeric value.",
+                    field="minimum_salary",
                 )
             if salary_min < 0:
                 raise ATSValidationError(
-                    "salary_min cannot be negative.",
-                    field="salary_min",
+                    "minimum_salary / salary_min cannot be negative.",
+                    field="minimum_salary",
                 )
 
         if salary_max is not None:
@@ -314,62 +262,43 @@ class JobValidator:
                 salary_max = float(salary_max)
             except (TypeError, ValueError):
                 raise ATSValidationError(
-                    "salary_max must be a numeric value.",
-                    field="salary_max",
+                    "maximum_salary / salary_max must be a numeric value.",
+                    field="maximum_salary",
                 )
             if salary_max < 0:
                 raise ATSValidationError(
-                    "salary_max cannot be negative.",
-                    field="salary_max",
+                    "maximum_salary / salary_max cannot be negative.",
+                    field="maximum_salary",
                 )
 
         if salary_min is not None and salary_max is not None:
             if salary_min > salary_max:
                 raise ATSValidationError(
-                    f"salary_min ({salary_min}) cannot be greater than "
-                    f"salary_max ({salary_max}).",
+                    f"minimum_salary ({salary_min}) cannot be greater than "
+                    f"maximum_salary ({salary_max}).",
                     details={
-                        "salary_min": salary_min,
-                        "salary_max": salary_max,
+                        "minimum_salary": salary_min,
+                        "maximum_salary": salary_max,
                     },
                 )
 
     def validate_dates(self, data: dict) -> None:
-        """Assert that ``opening_date <= closing_date`` when both are provided.
-
-        Accepts dates as ``YYYY-MM-DD`` strings or ``datetime.date`` objects.
-        Neither field is individually required; the constraint only applies
-        when both are present.
-
-        Parameters
-        ----------
-        data : dict
-            The input payload.  Keys examined: ``opening_date``, ``closing_date``.
-
-        Raises
-        ------
-        ATSValidationError
-            If either date has an unrecognisable format, or if
-            ``opening_date > closing_date``.
-        """
+        """Assert that dates are valid if provided."""
         opening_raw = data.get("opening_date")
         closing_raw = data.get("closing_date")
+        target_raw = data.get("target_joining_date")
 
-        if not opening_raw and not closing_raw:
-            return
+        if target_raw:
+            self._parse_date(target_raw, "target_joining_date")
 
-        opening_date = self._parse_date(opening_raw, "opening_date") if opening_raw else None
-        closing_date = self._parse_date(closing_raw, "closing_date") if closing_raw else None
-
-        if opening_date and closing_date and opening_date > closing_date:
-            raise ATSValidationError(
-                f"opening_date ({opening_date}) cannot be after "
-                f"closing_date ({closing_date}).",
-                details={
-                    "opening_date": str(opening_date),
-                    "closing_date": str(closing_date),
-                },
-            )
+        if opening_raw and closing_raw:
+            opening_date = self._parse_date(opening_raw, "opening_date")
+            closing_date = self._parse_date(closing_raw, "closing_date")
+            if opening_date > closing_date:
+                raise ATSValidationError(
+                    f"opening_date ({opening_date}) cannot be after closing_date ({closing_date}).",
+                    details={"opening_date": str(opening_date), "closing_date": str(closing_date)},
+                )
 
     def validate_employment_type(self, data: dict) -> None:
         """Assert that ``employment_type`` exists in the Employment Type master.

@@ -62,17 +62,27 @@ DOCTYPE_INDUSTRY = "Industry"
 # 2. Employer Roles
 # ---------------------------------------------------------------------------
 
-ROLE_ADMIN = "Employer Admin"
+# ---------------------------------------------------------------------------
+# Role constants must match the Select options in employer_user.json exactly:
+# Administrator | HR Manager | Recruiter | Hiring Manager | Interviewer | Viewer
+# ---------------------------------------------------------------------------
+
+ROLE_ADMIN = "Administrator"
+ROLE_HR_MANAGER = "HR Manager"
 ROLE_HIRING_MANAGER = "Hiring Manager"
 ROLE_RECRUITER = "Recruiter"
 ROLE_INTERVIEWER = "Interviewer"
+ROLE_VIEWER = "Viewer"
 
 #: Ordered list of employer roles from highest to lowest privilege.
+#: Matches the Employer User DocType `role` field options exactly.
 EMPLOYER_ROLES = [
     ROLE_ADMIN,
+    ROLE_HR_MANAGER,
     ROLE_HIRING_MANAGER,
     ROLE_RECRUITER,
     ROLE_INTERVIEWER,
+    ROLE_VIEWER,
 ]
 
 # ---------------------------------------------------------------------------
@@ -81,14 +91,19 @@ EMPLOYER_ROLES = [
 
 JOB_STATUS_DRAFT = "Draft"
 JOB_STATUS_OPEN = "Open"
-JOB_STATUS_ON_HOLD = "On Hold"
+JOB_STATUS_PAUSED = "Paused"
+JOB_STATUS_ON_HOLD = "Paused"  # Alias for backward compatibility
 JOB_STATUS_CLOSED = "Closed"
+JOB_STATUS_FILLED = "Filled"
+JOB_STATUS_CANCELLED = "Cancelled"
 
 ALLOWED_JOB_STATUSES = [
     JOB_STATUS_DRAFT,
     JOB_STATUS_OPEN,
-    JOB_STATUS_ON_HOLD,
+    JOB_STATUS_PAUSED,
     JOB_STATUS_CLOSED,
+    JOB_STATUS_FILLED,
+    JOB_STATUS_CANCELLED,
 ]
 
 # ---------------------------------------------------------------------------
@@ -265,9 +280,16 @@ CANDIDATE_REQUIRED_FIELDS = [
 ]
 
 #: Minimum required fields for creating a Company record.
+#: These mirror the ``reqd: 1`` fields in company.json:
+#: company_name, email, phone, address_line_1, status.
+#: (industry is enforced here as a business rule even though not reqd in schema.)
 COMPANY_REQUIRED_FIELDS = [
     "company_name",
     "industry",
+    "email",
+    "phone",
+    "address_line_1",
+    "status",
 ]
 
 #: Minimum required fields for creating a Job Opening record.
@@ -275,7 +297,7 @@ JOB_REQUIRED_FIELDS = [
     "job_title",
     "company",
     "employment_type",
-    "description",
+    "job_summary",
 ]
 
 #: Minimum required fields for creating a Job Application record.

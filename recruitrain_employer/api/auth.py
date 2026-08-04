@@ -192,8 +192,7 @@ def reset_password() -> dict:
 # Authenticated Endpoints
 # ---------------------------------------------------------------------------
 
-
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def logout() -> dict:
     """Invalidate the current session and log the user out.
 
@@ -219,7 +218,7 @@ def logout() -> dict:
         return _handle_ats_exception(exc)
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def me() -> dict:
     """Return session state and profile for the currently authenticated user.
 
@@ -265,7 +264,7 @@ def me() -> dict:
         return _handle_ats_exception(exc)
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def register_employer() -> dict:
     """Placeholder: Register a new employer user.
 

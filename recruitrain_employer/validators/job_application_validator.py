@@ -185,6 +185,9 @@ class JobApplicationValidator:
         self.validate_candidate(data)
         self.validate_job(data)
 
+        if data.get("applied_on"):
+            self.validate_application_date(data["applied_on"])
+
         if data.get("application_date"):
             self.validate_application_date(data["application_date"])
 
@@ -210,7 +213,7 @@ class JobApplicationValidator:
         ---------------------------
         1. ``data`` contains at least one field (no-op updates are rejected).
         2. All keys in ``data`` are present in ``APPLICATION_UPDATABLE_FIELDS``.
-        3. ``application_date`` format is valid (if provided).
+        3. ``applied_on`` / ``application_date`` format is valid (if provided).
         4. ``status`` is in ``ALLOWED_APPLICATION_STATUSES`` (if provided).
         """
         if not data:
@@ -226,6 +229,9 @@ class JobApplicationValidator:
                 f"{', '.join(sorted(disallowed))}.",
                 details={"disallowed_fields": sorted(disallowed)},
             )
+
+        if data.get("applied_on"):
+            self.validate_application_date(data["applied_on"])
 
         if data.get("application_date"):
             self.validate_application_date(data["application_date"])

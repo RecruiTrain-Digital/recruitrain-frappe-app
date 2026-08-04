@@ -363,31 +363,24 @@ def search_jobs() -> dict:
 
 @frappe.whitelist()
 def publish_job(job_id: str) -> dict:
-    """Publish a Draft Job Opening to make it visible.
-
-    TODO: Implement in the Job Lifecycle sprint.
-    TODO: Delegate to JobService.publish_job().
-    TODO: Validate all required fields before publishing.
-    TODO: Log status change to Activity Log.
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Job Opening publishing is not yet available.",
-    )
+    """Publish a Draft Job Opening to make it visible."""
+    try:
+        service = JobService()
+        job = service.publish_job(job_id=job_id)
+        return success_response(data=job, message="Job Opening published successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
 def close_job(job_id: str) -> dict:
-    """Close an active Job Opening, stopping new applications.
-
-    TODO: Implement in the Job Lifecycle sprint.
-    TODO: Delegate to JobService.close_job().
-    TODO: Notify existing applicants if required.
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Job Opening closing is not yet available.",
-    )
+    """Close an active Job Opening, stopping new applications."""
+    try:
+        service = JobService()
+        job = service.close_job(job_id=job_id)
+        return success_response(data=job, message="Job Opening closed successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -396,26 +389,7 @@ def close_job(job_id: str) -> dict:
 
 
 def _extract_job_fields(form_dict, exclude: set[str] | None = None) -> dict:
-    """Extract Job Opening field values from the Frappe form dict.
-
-    Strips ``frappe.form_dict`` keys that are internal Frappe parameters
-    (``cmd``, ``csrf_token``, etc.) and any caller-specified ``exclude``
-    keys, returning only the fields that belong to the Job Opening payload.
-
-    Parameters
-    ----------
-    form_dict : frappe.local.form_dict
-        The raw request parameters dict.
-    exclude : set[str] or None, optional
-        Additional keys to exclude from the output (e.g. ``{"job_id"}``
-        when the ID is a path parameter rather than a body field).
-
-    Returns
-    -------
-    dict
-        A clean dict of job opening field key/value pairs.
-    """
-    # Keys injected by Frappe's request handling — never job data.
+    """Extract Job Opening field values from the Frappe form dict."""
     _FRAPPE_INTERNAL_KEYS: frozenset[str] = frozenset(
         ["cmd", "csrf_token", "doctype", "docname"]
     )
@@ -430,41 +404,26 @@ def _extract_job_fields(form_dict, exclude: set[str] | None = None) -> dict:
 
 
 def _extract_list_filters(form_dict) -> dict:
-    """Extract optional list/search filter parameters from the request.
-
-    Centralises filter extraction so that adding a new filter parameter
-    (e.g. ``salary_min``, ``salary_max``) only requires a change here,
-    not in each endpoint that calls ``list_jobs`` or ``search_jobs``.
-
-    Parameters
-    ----------
-    form_dict : frappe.local.form_dict
-        The raw request parameters dict.
-
-    Returns
-    -------
-    dict
-        A filter map ready to be passed to ``JobService.list_jobs``
-        or ``JobService.search_jobs``.
-
-    TODO: Add salary range filters in a future sprint.
-    TODO: Add employer-scoped filter once Employer–Company linking is defined.
-    """
+    """Extract optional list/search filter parameters from the request."""
     filters: dict = {}
-
-    if form_dict.get("company"):
-        filters["company"] = form_dict["company"]
-
-    if form_dict.get("department"):
-        filters["department"] = form_dict["department"]
-
-    if form_dict.get("employment_type"):
-        filters["employment_type"] = form_dict["employment_type"]
-
-    if form_dict.get("status"):
-        filters["status"] = form_dict["status"]
-
-    if form_dict.get("location"):
-        filters["location"] = form_dict["location"]
+    filter_keys = (
+        "company",
+        "department",
+        "profession",
+        "employment_type",
+        "industry",
+        "status",
+        "city",
+        "state",
+        "country",
+        "remote",
+        "hybrid",
+        "published",
+        "featured_job",
+        "location",
+    )
+    for key in filter_keys:
+        if form_dict.get(key) is not None and form_dict.get(key) != "":
+            filters[key] = form_dict[key]
 
     return filters

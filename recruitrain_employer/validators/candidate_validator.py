@@ -75,54 +75,69 @@ from recruitrain_employer.utils.exceptions import ATSValidationError
 #: Fields a caller may supply when creating a new Candidate.
 CANDIDATE_CREATABLE_FIELDS: frozenset[str] = frozenset(
     [
+        "candidate_id",
+        "candidate_name",
         "first_name",
+        "middle_name",
         "last_name",
-        "email",
-        "phone",
         "date_of_birth",
         "gender",
         "nationality",
-        "current_location",
-        "profession",
-        "bio",
+        "marital_status",
+        "email",
+        "mobile_no",
+        "phone",
+        "mobile_number",
+        "alternate_mobile",
+        "linkedin",
         "linkedin_url",
+        "portfolio",
         "portfolio_url",
+        "github",
+        "current_job_title",
+        "current_company",
+        "years_of_experience",
+        "experience",
+        "total_experience_years",
+        "notice_period",
+        "current_salary",
+        "expected_salary",
+        "salary",
+        "preferred_location",
+        "current_location",
+        "location",
+        "employment_type",
+        "profession",
+        "address_line_1",
+        "address_line_2",
+        "city",
+        "state",
+        "country",
+        "postal_code",
         "status",
+        "source",
+        "resume",
+        "bio",
+        "profile_completion",
+        "passport_number",
+        "passport_expiry",
+        "visa_status",
+        "work_permit",
     ]
 )
 
 #: Fields a caller may modify on an existing Candidate record.
 #: Email is excluded — use the dedicated email-change flow (future sprint).
-CANDIDATE_UPDATABLE_FIELDS: frozenset[str] = frozenset(
-    [
-        "first_name",
-        "last_name",
-        "phone",
-        "date_of_birth",
-        "gender",
-        "nationality",
-        "current_location",
-        "profession",
-        "bio",
-        "linkedin_url",
-        "portfolio_url",
-        "status",
-    ]
-)
+CANDIDATE_UPDATABLE_FIELDS: frozenset[str] = CANDIDATE_CREATABLE_FIELDS - {"email"}
 
 # ---------------------------------------------------------------------------
 # Compiled Patterns
 # ---------------------------------------------------------------------------
 
 #: Post-normalization phone pattern.
-#: After ``normalize_phone`` strips spaces, dashes, and parentheses, the
-#: remaining string must be an optional leading ``+`` followed by 7–15 digits.
-#: This is intentionally tighter than the previous pattern because normalization
-#: has already removed all cosmetic punctuation.
 _PHONE_RE: re.Pattern = re.compile(r"^\+?\d{7,15}$")
 
 #: Characters to strip during phone normalization.
-#: Parentheses, spaces, hyphens, and dots are cosmetic formatting only.
 _PHONE_STRIP_RE: re.Pattern = re.compile(r"[\s\-().]")
 
 #: URL scheme validation — must start with http:// or https://.
@@ -130,106 +145,40 @@ _URL_RE: re.Pattern = re.compile(r"^https?://", re.IGNORECASE)
 
 
 class CandidateValidator:
-    """Stateless validator for Candidate create and update payloads.
-
-    Normalization is applied in-place on the ``data`` dict at the start of
-    ``validate_create`` and ``validate_update``.  This means the service
-    layer receives — and stores — the canonical form without any extra steps.
-
-    Instantiated once per service call.  All methods are side-effect-free
-    except for normalizing ``data`` in-place and raising ``ATSValidationError``
-    on invalid input.
-
-    Usage
-    -----
-    ::
-
-        validator = CandidateValidator()
-        validator.validate_create(data)   # normalizes + validates; raises on failure
-        validator.validate_update(data)   # normalizes + validates; raises on failure
-    """
+    """Stateless validator for Candidate create and update payloads."""
 
     # ------------------------------------------------------------------
     # Top-Level Validators (called by CandidateService)
     # ------------------------------------------------------------------
 
     def validate_create(self, data: dict) -> None:
-        """Normalize and validate a Candidate create payload.
-
-        Normalization is applied **in-place** on ``data`` before any
-        validation check runs.  The caller (``CandidateService``) therefore
-        always receives canonical values and persists them to the database.
-
-        Parameters
-        ----------
-        data : dict
-            Raw input data from the API request.  Modified in-place to
-            contain normalized ``email`` and ``phone`` values.
-
-        Raises
-        ------
-        ATSValidationError
-            If any required field is missing, empty, or has an invalid value
-            after normalization.
-
-        Checks Performed (in order)
-        ---------------------------
-        1. Normalize ``email`` (trim, lowercase) and write back to ``data``.
-        2. Normalize ``phone`` (strip punctuation) if present; write back.
-        3. All ``CANDIDATE_REQUIRED_FIELDS`` are present and non-empty.
-        4. Normalized ``email`` format is valid.
-        5. Normalized ``phone`` format is valid (if provided).
-        6. ``linkedin_url`` and ``portfolio_url`` start with http(s):// (if provided).
-        """
-        # Normalize before validation so checks always see canonical values.
+        """Normalize and validate a Candidate create payload."""
         if data.get("email"):
             data["email"] = self.normalize_email(data["email"])
 
-        if data.get("phone"):
-            data["phone"] = self.normalize_phone(data["phone"])
+        phone_val = data.get("phone") or data.get("mobile_no") or data.get("mobile_number")
+        if phone_val:
+            norm_phone = self.normalize_phone(str(phone_val))
+            data["mobile_no"] = norm_phone
+            data["phone"] = norm_phone
+            data["mobile_number"] = norm_phone
 
         self.validate_required_fields(data, CANDIDATE_REQUIRED_FIELDS)
         self.validate_email(data["email"])
 
-        if data.get("phone"):
-            self.validate_phone(data["phone"])
+        if data.get("mobile_no"):
+            self.validate_phone(data["mobile_no"])
 
-        if data.get("linkedin_url"):
-            self._validate_url(data["linkedin_url"], field="linkedin_url")
+        link_url = data.get("linkedin_url") or data.get("linkedin")
+        if link_url:
+            self._validate_url(link_url, field="linkedin")
 
-        if data.get("portfolio_url"):
-            self._validate_url(data["portfolio_url"], field="portfolio_url")
+        port_url = data.get("portfolio_url") or data.get("portfolio")
+        if port_url:
+            self._validate_url(port_url, field="portfolio")
 
     def validate_update(self, data: dict) -> None:
-        """Normalize and validate a Candidate update payload.
-
-        Normalization is applied **in-place** on ``data`` before validation.
-
-        Parameters
-        ----------
-        data : dict
-            Partial Candidate fields from the API request.  Must be non-empty.
-            Modified in-place to contain a normalized ``phone`` value if present.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``data`` is empty, contains non-updatable fields, or any
-            provided value is invalid after normalization.
-
-        Checks Performed (in order)
-        ---------------------------
-        1. ``data`` contains at least one field (no-op updates are rejected).
-        2. All keys in ``data`` are present in ``CANDIDATE_UPDATABLE_FIELDS``.
-        3. Normalize ``phone`` (strip punctuation) if present; write back.
-        4. Normalized ``phone`` format is valid (if provided).
-        5. ``linkedin_url`` and ``portfolio_url`` start with http(s):// (if provided).
-
-        Notes
-        -----
-        Email is intentionally excluded from updatable fields.  See module
-        docstring for the email change policy.
-        """
+        """Normalize and validate a Candidate update payload."""
         if not data:
             raise ATSValidationError(
                 "No update fields were provided. "
@@ -244,16 +193,21 @@ class CandidateValidator:
                 details={"disallowed_fields": sorted(disallowed)},
             )
 
-        # Normalize phone before validation.
-        if data.get("phone"):
-            data["phone"] = self.normalize_phone(data["phone"])
-            self.validate_phone(data["phone"])
+        phone_val = data.get("phone") or data.get("mobile_no") or data.get("mobile_number")
+        if phone_val:
+            norm_phone = self.normalize_phone(str(phone_val))
+            data["mobile_no"] = norm_phone
+            data["phone"] = norm_phone
+            data["mobile_number"] = norm_phone
+            self.validate_phone(norm_phone)
 
-        if data.get("linkedin_url"):
-            self._validate_url(data["linkedin_url"], field="linkedin_url")
+        link_url = data.get("linkedin_url") or data.get("linkedin")
+        if link_url:
+            self._validate_url(link_url, field="linkedin")
 
-        if data.get("portfolio_url"):
-            self._validate_url(data["portfolio_url"], field="portfolio_url")
+        port_url = data.get("portfolio_url") or data.get("portfolio")
+        if port_url:
+            self._validate_url(port_url, field="portfolio")
 
     # ------------------------------------------------------------------
     # Normalization Methods (public so CandidateService can call directly)

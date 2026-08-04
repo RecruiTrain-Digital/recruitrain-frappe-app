@@ -7,11 +7,18 @@ recruitrain_employer.api.dashboard
 
 Dashboard & Analytics API Endpoints.
 
-Provides REST endpoints that aggregate data across multiple DocTypes to
-power the employer-facing dashboard, reporting pages, and summary widgets.
+Architecture
+------------
+This module is a **thin controller only**.  The following are strictly
+prohibited here:
 
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.dashboard_service`` instead.
+- ``frappe.get_doc()``
+- ``frappe.get_all()``
+- ``frappe.get_list()``
+- ``frappe.db.*``
+- Any direct DocType or ORM access
+
+All business logic and database interactions live in ``DashboardService``.
 
 Endpoint Path Prefix
 ---------------------
@@ -20,8 +27,34 @@ Endpoint Path Prefix
 
 import frappe
 
-from recruitrain_employer.services.dashboard_service import DashboardService  # noqa: F401
-from recruitrain_employer.utils.response import error_response, success_response
+from recruitrain_employer.services.dashboard_service import DashboardService
+from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
+from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.response import (
+    error_response,
+    paginated_response,
+    success_response,
+)
+
+
+def _handle_ats_exception(exc: ATSException) -> dict:
+    """Translate an ``ATSException`` into a standardised error response dict.
+
+    Parameters
+    ----------
+    exc : ATSException
+        Any exception from the ATS exception hierarchy.
+
+    Returns
+    -------
+    dict
+        A standardised ``error_response`` dict.
+    """
+    return error_response(
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -30,77 +63,93 @@ from recruitrain_employer.utils.response import error_response, success_response
 
 
 @frappe.whitelist()
-def get_overview():
+def get_overview(company: str | None = None) -> dict:
     """Return top-level KPI metrics for the employer's dashboard.
 
-    Returns a snapshot containing:
-    - Total active Job Openings
-    - Total Job Applications (all time / this month)
-    - Interviews scheduled (this week)
-    - Pending Offers
-    - Recent Activity Log entries
+    Query / Body Parameters
+    -----------------------
+    company : str (optional)
 
     Returns
     -------
     dict
-        Standardised success response with KPI metrics.
-
-    TODO: Implement delegating to DashboardService.get_overview()
-    TODO: Apply company-scoped filters based on authenticated user
+        Standardised success response containing KPI metrics.
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        service = DashboardService()
+        data = service.get_overview(company=company)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))
 
 
 @frappe.whitelist()
-def get_pipeline_summary():
-    """Return application counts grouped by pipeline stage for each open job.
+def get_pipeline_summary(company: str | None = None, job_opening: str | None = None) -> dict:
+    """Return application counts grouped by pipeline stage overall and per job.
+
+    Query / Body Parameters
+    -----------------------
+    company     : str (optional)
+    job_opening : str (optional)
 
     Returns
     -------
     dict
         Standardised success response with pipeline stage distribution.
-
-    Example Response Shape
-    ----------------------
-    {
-        "data": [
-            {
-                "job_opening": "JOB-0001",
-                "job_title": "Senior Python Dev",
-                "stages": {
-                    "Applied": 24,
-                    "Screening": 8,
-                    "Interview": 3,
-                    "Offer": 1
-                }
-            }
-        ]
-    }
-
-    TODO: Implement delegating to DashboardService.get_pipeline_summary()
-    TODO: Cache result with short TTL to avoid repeated aggregation queries
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        job_opening = job_opening or frappe.form_dict.get("job_opening")
+        service = DashboardService()
+        data = service.get_pipeline_summary(company=company, job_opening=job_opening)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))
 
 
 @frappe.whitelist()
-def get_hiring_funnel():
+def get_hiring_funnel(
+    company: str | None = None,
+    job_opening: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
     """Return funnel conversion rates across the hiring pipeline.
 
-    Expected Query Parameters
-    --------------------------
-    job_opening : str  (optional; defaults to all company jobs)
-    from_date   : str  (ISO date)
-    to_date     : str  (ISO date)
+    Query / Body Parameters
+    -----------------------
+    company     : str (optional)
+    job_opening : str (optional)
+    from_date   : str (optional; ISO date)
+    to_date     : str (optional; ISO date)
 
     Returns
     -------
     dict
-        Standardised success response with funnel data suitable for charts.
-
-    TODO: Implement delegating to DashboardService.get_hiring_funnel()
+        Standardised success response with hiring funnel data.
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        job_opening = job_opening or frappe.form_dict.get("job_opening")
+        from_date = from_date or frappe.form_dict.get("from_date")
+        to_date = to_date or frappe.form_dict.get("to_date")
+        service = DashboardService()
+        data = service.get_hiring_funnel(
+            company=company,
+            job_opening=job_opening,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -109,47 +158,91 @@ def get_hiring_funnel():
 
 
 @frappe.whitelist()
-def get_applications_over_time():
-    """Return application submission counts grouped by day/week/month.
+def get_applications_over_time(
+    company: str | None = None,
+    job_opening: str | None = None,
+    granularity: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
+    """Return application submission counts grouped by daily/weekly/monthly periods.
 
-    Expected Query Parameters
-    --------------------------
-    job_opening  : str  (optional)
-    granularity  : str  (daily | weekly | monthly; default weekly)
-    from_date    : str  (ISO date)
-    to_date      : str  (ISO date)
+    Query / Body Parameters
+    -----------------------
+    company     : str (optional)
+    job_opening : str (optional)
+    granularity : str (optional; daily | weekly | monthly; default monthly)
+    from_date   : str (optional; ISO date)
+    to_date     : str (optional; ISO date)
 
     Returns
     -------
     dict
         Standardised success response with time-series data for charting.
-
-    TODO: Implement delegating to DashboardService.get_applications_over_time()
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        job_opening = job_opening or frappe.form_dict.get("job_opening")
+        granularity = granularity or frappe.form_dict.get("granularity", "monthly")
+        from_date = from_date or frappe.form_dict.get("from_date")
+        to_date = to_date or frappe.form_dict.get("to_date")
+        service = DashboardService()
+        data = service.get_applications_over_time(
+            company=company,
+            job_opening=job_opening,
+            granularity=granularity,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))
 
 
 @frappe.whitelist()
-def get_time_to_hire():
+def get_time_to_hire(
+    company: str | None = None,
+    job_opening: str | None = None,
+    department: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
     """Calculate average time-to-hire statistics.
 
-    Time-to-hire is measured from Job Opening publish date to Offer accepted date.
-
-    Expected Query Parameters
-    --------------------------
-    job_opening  : str  (optional)
-    department   : str  (optional)
-    from_date    : str  (ISO date)
-    to_date      : str  (ISO date)
+    Query / Body Parameters
+    -----------------------
+    company     : str (optional)
+    job_opening : str (optional)
+    department  : str (optional)
+    from_date   : str (optional; ISO date)
+    to_date     : str (optional; ISO date)
 
     Returns
     -------
     dict
-        Standardised success response with average, min, and max durations.
-
-    TODO: Implement delegating to DashboardService.get_time_to_hire()
+        Standardised success response with duration statistics.
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        job_opening = job_opening or frappe.form_dict.get("job_opening")
+        department = department or frappe.form_dict.get("department")
+        from_date = from_date or frappe.form_dict.get("from_date")
+        to_date = to_date or frappe.form_dict.get("to_date")
+        service = DashboardService()
+        data = service.get_time_to_hire(
+            company=company,
+            job_opening=job_opening,
+            department=department,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -158,20 +251,45 @@ def get_time_to_hire():
 
 
 @frappe.whitelist()
-def get_recent_activity():
-    """Return the most recent Activity Log entries for the company.
+def get_recent_activity(
+    company: str | None = None,
+    entity: str | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> dict:
+    """Return the most recent Activity Log entries across entity types.
 
-    Expected Query Parameters
-    --------------------------
-    page      : int  (default 1)
-    page_size : int  (default 20)
-    entity    : str  (optional; filter by entity type e.g. Job Application)
+    Query / Body Parameters
+    -----------------------
+    company   : str (optional)
+    entity    : str (optional; Candidate | Job Application | Interview | Offer)
+    page      : int (default 1)
+    page_size : int (default 20)
 
     Returns
     -------
     dict
-        Standardised success response with a list of Activity Log entries.
-
-    TODO: Implement delegating to DashboardService.get_recent_activity()
+        Standardised paginated response with activity entries.
     """
-    pass
+    try:
+        company = company or frappe.form_dict.get("company")
+        entity = entity or frappe.form_dict.get("entity")
+        page = page or int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = page_size or int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        service = DashboardService()
+        res = service.get_recent_activity(
+            company=company,
+            entity=entity,
+            page=page,
+            page_size=page_size,
+        )
+        return paginated_response(
+            data=res["data"],
+            page=res["page"],
+            page_size=res["page_size"],
+            total=res["total"],
+        )
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+    except Exception as exc:
+        return error_response(code="INTERNAL_ERROR", message=str(exc))

@@ -45,7 +45,8 @@ import frappe
 
 from recruitrain_employer.services.company_service import CompanyService
 from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
-from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.exceptions import ATSException, ATSValidationError
+from recruitrain_employer.utils.permissions import get_current_company
 from recruitrain_employer.utils.response import (
     error_response,
     paginated_response,
@@ -351,48 +352,149 @@ def search_companies() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sub-Resource Endpoints (Future Sprints — stubs only)
+# Profile Endpoints (consumed by companyApi.js)
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def get_company_jobs(company_id: str) -> dict:
-    """List all active Job Openings belonging to a Company.
+def get_company_profile() -> dict:
+    """Return the full Company profile for the currently authenticated employer.
 
-    TODO: Implement in the Job Opening sprint.
-    TODO: Delegate to CompanyService.get_company_jobs().
+    Scopes to the company linked to the authenticated Employer User record.
+    No ``company_id`` parameter is required — the company is resolved from
+    the session via ``get_current_company()``.
+
+    Returns
+    -------
+    dict
+        Standardised success response containing all Company profile fields::
+
+            {
+                "success": true,
+                "data": {
+                    "name": "Acme Corp",
+                    "company_name": "Acme Corp",
+                    "logo": "/files/logo.png",
+                    "banner": null,
+                    "industry": "Technology",
+                    ...
+                }
+            }
     """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Company Job Openings retrieval is not yet available.",
-    )
+    try:
+        company_id = get_current_company()
+        service = CompanyService()
+        profile = service.get_company_profile(company_id=company_id)
+        return success_response(data=profile)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def get_company_stats(company_id: str) -> dict:
-    """Return high-level statistics for a Company.
+def update_company_profile() -> dict:
+    """Update the Company profile for the currently authenticated employer.
 
-    TODO: Implement in the Dashboard/Analytics sprint.
-    TODO: Delegate to CompanyService.get_company_stats().
+    Scopes to the company linked to the authenticated Employer User.  Accepts
+    any subset of fields allowed by ``COMPANY_UPDATABLE_FIELDS``.
+
+    Expected Request Body (JSON / form-data)
+    -----------------------------------------
+    Any subset of::
+
+        {
+            "legal_name": "Acme Corporation Ltd",
+            "industry": "Technology",
+            "phone": "+1 800 555 1234",
+            "website": "https://acme.com",
+            "description": "...",
+            "country": "United States",
+            "state": "California",
+            "city": "San Francisco",
+            "address_line_1": "123 Main St",
+            "address_line_2": "Suite 400",
+            "postal_code": "94105",
+            "status": "Active",
+            "company_size": "51-200",
+            "linkedin": "https://linkedin.com/company/acme",
+            "twitter": "https://twitter.com/acme",
+            "facebook": "https://facebook.com/acme",
+            "instagram": "https://instagram.com/acme"
+        }
+
+    Returns
+    -------
+    dict
+        Standardised success response containing the updated Company document.
     """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Company statistics are not yet available.",
-    )
+    try:
+        company_id = get_current_company()
+        data = _extract_company_fields(frappe.form_dict)
+        service = CompanyService()
+        profile = service.update_company_profile(company_id=company_id, data=data)
+        return success_response(data=profile, message="Company profile updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def upload_company_logo(company_id: str) -> dict:
-    """Upload or replace the Company logo.
+def upload_company_logo() -> dict:
+    """Upload or replace the Company logo for the authenticated employer.
 
-    TODO: Implement in the Logo Upload sprint.
-    TODO: Validate MIME type and size via CompanyValidator.validate_logo_upload().
-    TODO: Delegate to CompanyService.upload_company_logo().
+    Reads the uploaded file from the multipart request, validates MIME type
+    and size, creates a Frappe File record, and updates ``Company.logo``.
+
+    Expected Request
+    ----------------
+    ``Content-Type: multipart/form-data`` with a single file field named
+    ``"logo"``.
+
+    Returns
+    -------
+    dict
+        Standardised success response::
+
+            {
+                "success": true,
+                "data": {
+                    "logo_url": "/files/acme-logo.png"
+                }
+            }
     """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Company logo upload is not yet available.",
-    )
+    try:
+        company_id = get_current_company()
+
+        # Read the uploaded file from the multipart request.
+        uploaded_file = None
+        if hasattr(frappe.request, "files") and "logo" in frappe.request.files:
+            uploaded_file = frappe.request.files["logo"]
+
+        if not uploaded_file or not uploaded_file.filename:
+            raise ATSValidationError(
+                "No logo file was provided. Send a multipart/form-data request "
+                "with a file field named 'logo'.",
+                field="logo",
+            )
+
+        file_name: str = uploaded_file.filename
+        file_content: bytes = uploaded_file.read()
+        content_type: str = (
+            uploaded_file.content_type
+            or frappe.form_dict.get("content_type", "application/octet-stream")
+        )
+
+        service = CompanyService()
+        result = service.upload_company_logo(
+            company_id=company_id,
+            file_content=file_content,
+            file_name=file_name,
+            content_type=content_type,
+        )
+
+        return success_response(data=result, message="Company logo uploaded successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
 
 
 # ---------------------------------------------------------------------------

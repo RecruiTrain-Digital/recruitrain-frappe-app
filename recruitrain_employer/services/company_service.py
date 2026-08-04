@@ -164,20 +164,31 @@ _LIST_FIELDS: list[str] = [
 ]
 
 #: Fields returned in a full Company detail response.
+#: All fieldnames must exist in company.json.
 #: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
 _DETAIL_FIELDS: list[str] = _LIST_FIELDS + [
     "description",
     "state",
     "address_line_1",
     "address_line_2",
-    "address",
     "postal_code",
     "founded_year",
     "company_size",
     "linkedin",
     "twitter",
-    "linkedin_url",
-    "twitter_url",
+    "facebook",
+    "instagram",
+    "logo",
+    "banner",
+    "primary_color",
+    "secondary_color",
+    "legal_name",
+    "company_code",
+    "alternate_phone",
+    "hr_email",
+    "support_email",
+    "verified",
+    "active",
 ]
 
 
@@ -527,6 +538,156 @@ class CompanyService:
         }
 
     # ------------------------------------------------------------------
+    # Profile Endpoints (used by Frontend companyApi.js)
+    # ------------------------------------------------------------------
+
+    def get_company_profile(self, company_id: str) -> dict:
+        """Return the full Company profile serialised with the frontend field contract.
+
+        Returns every field required by the frontend including logo, banner,
+        branding, contact, address, and social media fields.  All field names
+        are canonical schema names (snake_case); the frontend normalizer in
+        ``companyApi.js`` maps them to camelCase.
+
+        Parameters
+        ----------
+        company_id : str
+            The ``name`` of the Company record.
+
+        Returns
+        -------
+        dict
+            Full Company document serialised via ``_serialize_company`` with
+            ``_DETAIL_FIELDS``.
+
+        Raises
+        ------
+        ATSValidationError
+            If ``company_id`` is empty.
+        ATSNotFoundError
+            If the Company does not exist.
+        """
+        if not company_id:
+            raise ATSValidationError("company_id is required.", field="company_id")
+        doc = self._get_or_raise(company_id)
+        return self._serialize_company_profile(doc)
+
+    def update_company_profile(self, company_id: str, data: dict) -> dict:
+        """Apply a partial update to a Company record via the profile endpoint.
+
+        Delegates field validation and changed-field tracking to ``update_company``,
+        then re-serialises the result using ``_serialize_company_profile`` so the
+        frontend receives canonical fields **and** legacy alias keys in one response.
+
+        Parameters
+        ----------
+        company_id : str
+            The ``name`` of the Company to update.
+        data : dict
+            Partial Company fields.  Only fields in
+            ``COMPANY_UPDATABLE_FIELDS`` are accepted.
+
+        Returns
+        -------
+        dict
+            The updated Company document with both canonical and alias fields.
+        """
+        if not company_id:
+            raise ATSValidationError("company_id is required.", field="company_id")
+
+        self._validator.validate_update(data)
+        doc = self._get_or_raise(company_id)
+        changed_fields = self._apply_changed_fields(doc, data)
+
+        if changed_fields:
+            from frappe.exceptions import DuplicateEntryError
+            try:
+                doc.save(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    "Company conflict during profile update.",
+                    details={"company_id": company_id},
+                ) from exc
+
+        return self._serialize_company_profile(doc)
+
+    def upload_company_logo(self, company_id: str, file_content: bytes, file_name: str, content_type: str) -> dict:
+        """Upload or replace the Company logo and persist the URL on the document.
+
+        Workflow
+        --------
+        1. Validate MIME type against ``ALLOWED_IMAGE_TYPES``.
+        2. Validate file size against ``MAX_LOGO_SIZE_MB``.
+        3. Create a Frappe ``File`` record attached to this Company.
+        4. Set ``company.logo`` to the new file URL and save.
+        5. Return ``{"logo_url": "<url>"}`` for the frontend.
+
+        Parameters
+        ----------
+        company_id : str
+            The ``name`` of the Company to attach the logo to.
+        file_content : bytes
+            Raw file bytes from the upload.
+        file_name : str
+            Original file name (used for extension detection).
+        content_type : str
+            MIME type of the upload (e.g. ``"image/png"``).
+
+        Returns
+        -------
+        dict
+            ``{"logo_url": "<frappe file url>"}``
+
+        Raises
+        ------
+        ATSValidationError
+            If the file type is not allowed or exceeds the size limit.
+        ATSNotFoundError
+            If the Company record does not exist.
+        """
+        from recruitrain_employer.utils.constants import ALLOWED_IMAGE_TYPES, MAX_LOGO_SIZE_MB
+
+        # 1. Validate MIME type.
+        if content_type not in ALLOWED_IMAGE_TYPES:
+            raise ATSValidationError(
+                f"File type '{content_type}' is not allowed for company logos. "
+                f"Allowed types: {', '.join(ALLOWED_IMAGE_TYPES)}.",
+                field="logo",
+            )
+
+        # 2. Validate file size.
+        max_bytes = MAX_LOGO_SIZE_MB * 1024 * 1024
+        if len(file_content) > max_bytes:
+            raise ATSValidationError(
+                f"Logo file exceeds the maximum allowed size of {MAX_LOGO_SIZE_MB} MB.",
+                field="logo",
+            )
+
+        # 3. Confirm company exists.
+        doc = self._get_or_raise(company_id)
+
+        # 4. Create Frappe File record attached to this Company.
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": file_name,
+                "content": file_content,
+                "attached_to_doctype": DOCTYPE_COMPANY,
+                "attached_to_name": company_id,
+                "attached_to_field": "logo",
+                "is_private": 0,
+            }
+        )
+        file_doc.insert(ignore_permissions=True)
+
+        logo_url: str = file_doc.file_url
+
+        # 5. Update Company.logo with the new file URL.
+        doc.db_set("logo", logo_url)
+
+        return {"logo_url": logo_url}
+
+    # ------------------------------------------------------------------
     # Sub-Resource Methods (Future Sprints)
     # ------------------------------------------------------------------
 
@@ -550,16 +711,6 @@ class CompanyService:
 
         TODO: Implement in the Dashboard/Analytics sprint.
         TODO: Use frappe.db.count() scoped to company_id for each stat.
-        """
-        pass
-
-    def upload_company_logo(self, company_id: str, file_data: dict) -> str:
-        """Upload or replace the Company logo.
-
-        TODO: Implement in the Logo Upload sprint.
-        TODO: Validate MIME type against ALLOWED_IMAGE_TYPES.
-        TODO: Create Frappe File record and link to Company.
-        TODO: Update company.logo field with the new file URL.
         """
         pass
 
@@ -649,6 +800,64 @@ class CompanyService:
             for field in fields
             if field not in _FRAPPE_METADATA_FIELDS
         }
+
+    @staticmethod
+    def _serialize_company_profile(doc) -> dict:
+        """Serialise a Company document with both canonical and frontend-alias keys.
+
+        The frontend ``companyApi.js :: normalizeFromBackend`` reads a mix of
+        canonical snake_case fields and legacy alias keys.  This serialiser
+        emits **both** so the frontend contract is preserved without any
+        frontend modification.
+
+        Canonical fields returned
+        -------------------------
+        All fields in ``_DETAIL_FIELDS``: name, company_name, industry,
+        email, phone, website, city, country, status, description, state,
+        address_line_1, address_line_2, postal_code, founded_year, company_size,
+        linkedin, twitter, facebook, instagram, logo, banner, primary_color,
+        secondary_color, legal_name, company_code, alternate_phone, hr_email,
+        support_email, verified, active.
+
+        Frontend alias keys also emitted (read by normalizeFromBackend)
+        ----------------------------------------------------------------
+        - ``company_logo``   → alias for ``logo``
+        - ``address_line1``  → alias for ``address_line_1``   (frontend uses ``street``)
+        - ``pincode``        → alias for ``postal_code``       (frontend uses ``postalCode``)
+        - ``industry_ids``   → ``[industry]`` single-element list (frontend reads as array)
+        - ``about``          → alias for ``description``       (frontend uses ``about``)
+        - ``contact_name``   → always ``null`` (not a schema field — placeholder for frontend)
+        - ``contact_email``  → always ``null`` (not a schema field)
+        - ``contact_phone``  → alias for ``phone``
+
+        Parameters
+        ----------
+        doc : frappe.Document
+            The Company document to serialise.
+
+        Returns
+        -------
+        dict
+            A plain Python dict suitable for JSON serialisation.
+        """
+        base: dict = {
+            field: doc.get(field)
+            for field in _DETAIL_FIELDS
+            if field not in _FRAPPE_METADATA_FIELDS
+        }
+
+        # Inject frontend-expected alias keys without altering canonical fields.
+        base["company_logo"]  = doc.get("logo")
+        base["address_line1"] = doc.get("address_line_1")
+        base["pincode"]       = doc.get("postal_code")
+        base["industry_ids"]  = [doc.get("industry")] if doc.get("industry") else []
+        base["about"]         = doc.get("description")
+        base["contact_name"]  = None          # Not a schema field; placeholder for frontend
+        base["contact_email"] = None          # Not a schema field; placeholder for frontend
+        base["contact_phone"] = doc.get("phone")
+        base["sub_industry"]  = None          # Not a schema field; placeholder for frontend
+
+        return base
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:

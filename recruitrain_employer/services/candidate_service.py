@@ -107,35 +107,38 @@ from recruitrain_employer.validators.candidate_validator import CandidateValidat
 # ---------------------------------------------------------------------------
 
 #: Fields used to search across Candidate records.
-#: To add a new searchable field, append it here — no other changes needed.
 #: Search uses LIKE with a lowercased term for case-insensitive matching.
 SEARCHABLE_FIELDS: tuple[str, ...] = (
+    "candidate_name",
     "first_name",
     "last_name",
     "email",
-    "phone",
+    "mobile_no",
     "profession",
-    "current_location",
+    "current_company",
+    "current_job_title",
+    "city",
+    "state",
+    "country",
+    "preferred_location",
 )
 
 #: Fields callers may pass to ``order_by``.
-#: Any value not in this set is silently replaced with ``"creation"``
-#: to prevent malformed queries.
 ALLOWED_SORT_FIELDS: frozenset[str] = frozenset(
     [
         "creation",
         "modified",
+        "candidate_name",
         "first_name",
         "last_name",
         "email",
         "status",
+        "years_of_experience",
+        "expected_salary",
     ]
 )
 
 #: Frappe internal metadata fields that must never appear in API responses.
-#: Applied as a second exclusion gate in ``_serialize_candidate`` regardless
-#: of what field list is passed in — defence-in-depth against accidental
-#: exposure of system data.
 _FRAPPE_METADATA_FIELDS: frozenset[str] = frozenset(
     [
         "owner",
@@ -152,27 +155,50 @@ _FRAPPE_METADATA_FIELDS: frozenset[str] = frozenset(
 )
 
 #: Fields included in list and search result rows (lightweight projection).
-#: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
 _LIST_FIELDS: list[str] = [
     "name",
+    "candidate_id",
+    "candidate_name",
     "first_name",
     "last_name",
     "email",
-    "phone",
+    "mobile_no",
+    "current_job_title",
+    "current_company",
     "profession",
-    "current_location",
+    "city",
+    "state",
+    "country",
+    "preferred_location",
+    "years_of_experience",
     "status",
 ]
 
 #: Fields returned in a full Candidate detail response.
-#: Must not overlap with ``_FRAPPE_METADATA_FIELDS``.
 _DETAIL_FIELDS: list[str] = _LIST_FIELDS + [
+    "middle_name",
     "date_of_birth",
     "gender",
     "nationality",
-    "bio",
-    "linkedin_url",
-    "portfolio_url",
+    "marital_status",
+    "alternate_mobile",
+    "linkedin",
+    "portfolio",
+    "github",
+    "notice_period",
+    "current_salary",
+    "expected_salary",
+    "employment_type",
+    "address_line_1",
+    "address_line_2",
+    "postal_code",
+    "source",
+    "resume",
+    "profile_completion",
+    "passport_number",
+    "passport_expiry",
+    "visa_status",
+    "work_permit",
 ]
 
 
@@ -245,7 +271,8 @@ class CandidateService:
                 details={"field": "email", "value": data.get("email")},
             ) from exc
 
-        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS)
+        batch_apps = self._get_batch_latest_applications([doc.name])
+        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS, application=batch_apps.get(doc.name))
 
     def get_candidate(self, candidate_id: str) -> dict:
         """Retrieve a full Candidate profile by record name.
@@ -276,7 +303,8 @@ class CandidateService:
             raise ATSValidationError("candidate_id is required.", field="candidate_id")
 
         doc = self._get_or_raise(candidate_id)
-        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS)
+        batch_apps = self._get_batch_latest_applications([candidate_id])
+        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS, application=batch_apps.get(candidate_id))
 
     def update_candidate(self, candidate_id: str, data: dict) -> dict:
         """Apply a partial update to an existing Candidate record.
@@ -334,7 +362,8 @@ class CandidateService:
                 ) from exc
             # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
-        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS)
+        batch_apps = self._get_batch_latest_applications([candidate_id])
+        return self._serialize_candidate(doc, fields=_DETAIL_FIELDS, application=batch_apps.get(candidate_id))
 
     # TODO: Replace hard delete with an archive/deactivate workflow
     #       when the Candidate lifecycle (Active → Archived → Deleted) is
@@ -439,8 +468,16 @@ class CandidateService:
             ignore_permissions=True,
         )
 
+        candidate_ids = [r["name"] for r in records if "name" in r]
+        batch_applications = self._get_batch_latest_applications(candidate_ids)
+
         return {
-            "data": [dict(r) for r in records],
+            "data": [
+                self._serialize_candidate(
+                    r, fields=_LIST_FIELDS, application=batch_applications.get(r.get("name"))
+                )
+                for r in records
+            ],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -515,8 +552,16 @@ class CandidateService:
             ignore_permissions=True,
         )
 
+        candidate_ids = [r["name"] for r in records if "name" in r]
+        batch_applications = self._get_batch_latest_applications(candidate_ids)
+
         return {
-            "data": [dict(r) for r in records],
+            "data": [
+                self._serialize_candidate(
+                    r, fields=_LIST_FIELDS, application=batch_applications.get(r.get("name"))
+                )
+                for r in records
+            ],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -642,78 +687,199 @@ class CandidateService:
             )
 
     @staticmethod
-    def _serialize_candidate(doc, fields: list[str]) -> dict:
+    def _get_batch_latest_applications(candidate_ids: list[str]) -> dict[str, dict]:
+        """Fetch the latest Job Application record for a list of Candidate IDs in batch.
+
+        Avoids N+1 queries by grouping and fetching all applications for candidate IDs
+        joined with Job Opening details in 1 aggregated DB query.
+        """
+        valid_ids = [cid for cid in candidate_ids if cid]
+        if not valid_ids:
+            return {}
+
+        app_rows = frappe.db.sql(
+            """
+            SELECT
+                app.name AS application_name,
+                app.candidate AS candidate_id,
+                app.job_opening AS job_id,
+                app.applied_on AS applied_on,
+                app.creation AS creation,
+                app.current_stage AS current_stage,
+                app.assigned_recruiter AS app_recruiter,
+                job.job_title AS job_title,
+                job.department AS department,
+                job.recruiter AS job_recruiter
+            FROM `tabJob Application` app
+            LEFT JOIN `tabJob Opening` job ON app.job_opening = job.name
+            WHERE app.candidate IN %s
+            ORDER BY app.applied_on DESC, app.creation DESC
+            """,
+            (tuple(valid_ids),),
+            as_dict=True,
+        )
+
+        latest_apps: dict[str, dict] = {}
+        for row in app_rows:
+            cid = row.get("candidate_id")
+            if cid and cid not in latest_apps:
+                recruiter = row.get("app_recruiter") or row.get("job_recruiter") or None
+                raw_applied = row.get("applied_on") or (str(row.get("creation"))[:10] if row.get("creation") else None)
+                if hasattr(raw_applied, "strftime"):
+                    applied_at = raw_applied.strftime("%Y-%m-%d")
+                elif raw_applied:
+                    applied_at = str(raw_applied)[:10]
+                else:
+                    applied_at = None
+
+                latest_apps[cid] = {
+                    "application_name": row.get("application_name"),
+                    "job_id": row.get("job_id"),
+                    "job_title": row.get("job_title"),
+                    "department": row.get("department"),
+                    "applied_at": applied_at,
+                    "recruiter": recruiter,
+                    "current_stage": row.get("current_stage"),
+                }
+
+        return latest_apps
+
+    @staticmethod
+    def _serialize_candidate(doc, fields: list[str], application: dict | None = None) -> dict:
         """Serialise a Frappe Candidate Document to a plain, JSON-safe dict.
 
-        Named ``_serialize_candidate`` rather than a generic ``_doc_to_dict``
-        because this helper is intentionally scoped to the Candidate domain.
-        Each service module (Company, Job, Interview, Offer) will define its
-        own ``_serialize_*`` helper, making the origin of each serialiser
-        immediately obvious and allowing domain-specific post-processing
-        without coupling services together.
-
-        Metadata Exclusion
-        ------------------
-        This method applies a second exclusion gate: any field present in
-        ``_FRAPPE_METADATA_FIELDS`` is stripped from the output regardless
-        of whether it appears in ``fields``.  This provides defence-in-depth
-        against accidental exposure of Frappe system data (``owner``,
-        ``modified_by``, ``docstatus``, etc.).
-
-        Parameters
-        ----------
-        doc : frappe.Document
-            The Candidate document to serialise.
-        fields : list[str]
-            The business-facing field names to include in the output dict.
-
-        Returns
-        -------
-        dict
-            A plain Python dict containing only non-metadata fields whose
-            names appear in ``fields``.
+        Strips metadata fields and populates contract aliases expected by frontends:
+        - phone / mobile_number -> mobile_no
+        - full_name -> first_name + middle_name + last_name
+        - linkedin_url -> linkedin
+        - portfolio_url -> portfolio
+        - location / current_location -> city, state, country or preferred_location
+        - experience / total_experience_years -> years_of_experience
+        - salary -> expected_salary
+        - bio -> None (if missing)
+        - application -> { job_id, job_title, department, applied_at, recruiter, current_stage }
+        - latest_application, latest_job, latest_job_title, latest_application_date, latest_application_stage, latest_recruiter
         """
-        return {
-            field: doc.get(field)
-            for field in fields
-            if field not in _FRAPPE_METADATA_FIELDS
-        }
+        if isinstance(doc, dict):
+            data = {
+                field: doc.get(field)
+                for field in fields
+                if field not in _FRAPPE_METADATA_FIELDS and field in doc
+            }
+        else:
+            data = {
+                field: doc.get(field)
+                for field in fields
+                if field not in _FRAPPE_METADATA_FIELDS
+            }
+
+        # Dynamic Full Name Alias
+        fn = data.get("first_name", "") or ""
+        mn = data.get("middle_name", "") or ""
+        ln = data.get("last_name", "") or ""
+        name_parts = [p for p in (fn, mn, ln) if p]
+        if name_parts:
+            data["full_name"] = " ".join(name_parts)
+
+        # Phone Aliases
+        if "mobile_no" in data:
+            data["phone"] = data["mobile_no"]
+            data["mobile_number"] = data["mobile_no"]
+
+        # Social Link Aliases
+        if "linkedin" in data:
+            data["linkedin_url"] = data["linkedin"]
+        if "portfolio" in data:
+            data["portfolio_url"] = data["portfolio"]
+
+        # Experience & Salary Aliases
+        if "years_of_experience" in data:
+            data["experience"] = data["years_of_experience"]
+            data["total_experience_years"] = data["years_of_experience"]
+        if "expected_salary" in data:
+            data["salary"] = data["expected_salary"]
+
+        # Location Aliases
+        loc_parts = [str(data[k]) for k in ("city", "state", "country") if data.get(k)]
+        if loc_parts:
+            loc_str = ", ".join(loc_parts)
+            data["location"] = loc_str
+            data["current_location"] = loc_str
+        elif data.get("preferred_location"):
+            data["location"] = data["preferred_location"]
+            data["current_location"] = data["preferred_location"]
+        else:
+            data["location"] = None
+            data["current_location"] = None
+
+        if "bio" not in data:
+            data["bio"] = None
+
+        # Enrichment: latest Job Application details
+        if application:
+            data["application"] = {
+                "job_id": application.get("job_id"),
+                "job_title": application.get("job_title"),
+                "department": application.get("department"),
+                "applied_at": application.get("applied_at"),
+                "recruiter": application.get("recruiter"),
+                "current_stage": application.get("current_stage"),
+                # Aliases for frontend UI compatibility
+                "jobId": application.get("job_id"),
+                "jobTitle": application.get("job_title"),
+                "appliedAt": application.get("applied_at"),
+                "currentStage": application.get("current_stage"),
+            }
+            data["latest_application"] = application.get("application_name")
+            data["latest_job"] = application.get("job_id")
+            data["latest_job_title"] = application.get("job_title")
+            data["latest_application_date"] = application.get("applied_at")
+            data["latest_application_stage"] = application.get("current_stage")
+            data["latest_recruiter"] = application.get("recruiter")
+        else:
+            data["application"] = None
+            data["latest_application"] = None
+            data["latest_job"] = None
+            data["latest_job_title"] = None
+            data["latest_application_date"] = None
+            data["latest_application_stage"] = None
+            data["latest_recruiter"] = None
+
+        return data
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:
         """Apply only genuinely changed fields onto a Frappe Document object.
 
-        Compares each incoming value against the current document value and
-        only calls ``setattr`` when they differ.  This prevents Frappe from
-        tracking unnecessary dirty fields and keeps the returned change dict
-        clean for future Activity Log diffing.
-
-        Parameters
-        ----------
-        doc : frappe.Document
-            The document to mutate in-place.
-        data : dict
-            Field/value pairs to potentially apply.
-
-        Returns
-        -------
-        dict
-            A ``{field: new_value}`` dict containing only the fields that
-            were actually changed.  An empty dict means no fields changed.
-
-        Notes
-        -----
-        Unknown fields (not present as attributes on the document) are
-        silently skipped to avoid attribute errors.
-
-        The returned dict is intended for future Activity Log integration::
-
-            changed = self._apply_changed_fields(doc, data)
-            # TODO: ActivityLogService.log_update(candidate_id, changed)
+        Translates input contract aliases to underlying DocType schema fields:
+        - phone / mobile_number -> mobile_no
+        - linkedin_url -> linkedin
+        - portfolio_url -> portfolio
+        - experience / total_experience_years -> years_of_experience
+        - salary -> expected_salary
+        - location / current_location -> preferred_location
         """
         changed: dict = {}
         meta = frappe.get_meta(doc.doctype)
-        for field, new_value in data.items():
+
+        aliases = {
+            "phone": "mobile_no",
+            "mobile_number": "mobile_no",
+            "linkedin_url": "linkedin",
+            "portfolio_url": "portfolio",
+            "experience": "years_of_experience",
+            "total_experience_years": "years_of_experience",
+            "salary": "expected_salary",
+            "location": "preferred_location",
+            "current_location": "preferred_location",
+        }
+
+        normalized_data = {}
+        for k, v in data.items():
+            target_key = aliases.get(k, k)
+            normalized_data[target_key] = v
+
+        for field, new_value in normalized_data.items():
             if not meta.has_field(field):
                 continue
             current_value = doc.get(field)
@@ -724,45 +890,20 @@ class CandidateService:
 
     @staticmethod
     def _build_orm_filters(filters: dict) -> dict:
-        """Construct a Frappe ORM filter dict from the caller-supplied filter map.
-
-        Supported Filter Keys
-        ---------------------
-        - ``status``  (str) — filter by the Candidate ``status`` field.
-
-        Adding New Filters
-        ------------------
-        Append a new ``if filters.get("<key>"):`` block here.  Neither
-        the API method signature nor the ``list_candidates`` /
-        ``search_candidates`` signatures need to change.
-
-        Parameters
-        ----------
-        filters : dict
-            Caller-supplied key/value pairs from the API layer.
-
-        Returns
-        -------
-        dict
-            Frappe-compatible filter dict ready for ``frappe.get_list`` /
-            ``frappe.db.count``.
-        """
+        """Construct a Frappe ORM filter dict from the caller-supplied filter map."""
         orm: dict = {}
 
         if filters.get("status"):
             orm["status"] = filters["status"]
-
-        # TODO: Add company-scoping filter once Employer–Candidate pool is defined.
-        # if filters.get("company"):
-        #     orm["company"] = filters["company"]
-
-        # TODO: Add profession filter in a future sprint.
-        # if filters.get("profession"):
-        #     orm["profession"] = filters["profession"]
-
-        # TODO: Add current_location filter in a future sprint.
-        # if filters.get("location"):
-        #     orm["current_location"] = filters["location"]
+        if filters.get("profession"):
+            orm["profession"] = filters["profession"]
+        if filters.get("city"):
+            orm["city"] = filters["city"]
+        if filters.get("country"):
+            orm["country"] = filters["country"]
+        if filters.get("location") or filters.get("current_location"):
+            loc = filters.get("location") or filters.get("current_location")
+            orm["preferred_location"] = ["like", f"%{loc}%"]
 
         return orm
 

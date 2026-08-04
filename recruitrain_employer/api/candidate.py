@@ -470,35 +470,20 @@ def _extract_candidate_fields(form_dict, exclude: set[str] | None = None) -> dic
 
 
 def _extract_list_filters(form_dict) -> dict:
-    """Extract optional list/search filter parameters from the request.
-
-    Centralises filter extraction so that adding a new filter parameter
-    (e.g. ``profession``, ``location``) only requires a change here,
-    not in each endpoint that calls ``list_candidates`` or
-    ``search_candidates``.
-
-    Parameters
-    ----------
-    form_dict : frappe.local.form_dict
-        The raw request parameters dict.
-
-    Returns
-    -------
-    dict
-        A filter map ready to be passed to ``CandidateService.list_candidates``
-        or ``CandidateService.search_candidates``.
-
-    TODO: Add profession filter when the Profession master is available.
-    TODO: Add location filter in a future sprint.
-    TODO: Add experience-level filter in a future sprint.
-    """
+    """Extract optional list/search filter parameters from the request."""
     filters: dict = {}
 
     if form_dict.get("status"):
         filters["status"] = form_dict["status"]
-
-    # TODO: Uncomment when company-scoping is implemented.
-    # if form_dict.get("company"):
-    #     filters["company"] = form_dict["company"]
+    if form_dict.get("profession"):
+        filters["profession"] = form_dict["profession"]
+    if form_dict.get("city"):
+        filters["city"] = form_dict["city"]
+    if form_dict.get("country"):
+        filters["country"] = form_dict["country"]
+    if form_dict.get("location"):
+        filters["location"] = form_dict["location"]
+    if form_dict.get("current_location"):
+        filters["current_location"] = form_dict["current_location"]
 
     return filters

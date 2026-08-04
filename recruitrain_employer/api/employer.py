@@ -87,8 +87,10 @@ def list_employer_users():
     --------------------------
     page      : int  (default 1)
     page_size : int  (default 20, max 100)
-    role      : str  (optional role filter)
-    is_active : bool (optional active/inactive filter)
+    role      : str  (optional — one of: Administrator, HR Manager, Recruiter,
+                      Hiring Manager, Interviewer, Viewer)
+    status    : str  (optional — one of: Active, Inactive, Blocked)
+                NOTE: The Employer User schema field is ``status``, not ``is_active``.
 
     Returns
     -------
@@ -99,6 +101,7 @@ def list_employer_users():
     TODO: Scope to requesting user's company
     """
     pass
+
 
 
 # ---------------------------------------------------------------------------
