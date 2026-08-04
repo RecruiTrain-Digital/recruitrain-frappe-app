@@ -84,6 +84,26 @@ def _handle_ats_exception(exc: ATSException) -> dict:
 
 
 @frappe.whitelist()
+def save_draft(job_id: str | None = None) -> dict:
+    """Save a Job Opening draft (supports create and update).
+
+    Accepts incomplete payloads. Does NOT require mandatory publish fields
+    (job_title, employment_type, job_summary).
+    """
+    try:
+        job_id = job_id or frappe.form_dict.get("job_id") or frappe.form_dict.get("name")
+        data = _extract_job_fields(frappe.form_dict, exclude={"job_id", "name"})
+
+        service = JobService()
+        job = service.save_draft(data=data, job_id=job_id)
+
+        return success_response(data=job, message="Job Opening draft saved successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
 def create_job() -> dict:
     """Create a new Job Opening record.
 
@@ -92,20 +112,11 @@ def create_job() -> dict:
     ::
 
         {
-            "job_title":         "Senior Python Developer",   # required
-            "company":           "Acme Corp",                 # required
-            "employment_type":   "Full-Time",                 # required
-            "description":       "We are looking for ...",    # required
-            "job_code":          "ENG-2024-001",              # optional
-            "department":        "Engineering",               # optional
-            "location":          "Berlin, DE",                # optional
-            "salary_min":        80000,                       # optional
-            "salary_max":        110000,                      # optional
-            "currency":          "EUR",                       # optional
-            "status":            "Draft",                     # optional
-            "opening_date":      "2024-01-15",                # optional
-            "closing_date":      "2024-03-31",                # optional
-            "number_of_positions": 2                          # optional
+            "job_title":         "Senior Python Developer",   # required for publish
+            "company":           "Acme Corp",                 # required for publish
+            "employment_type":   "Full-Time",                 # required for publish
+            "description":       "We are looking for ...",    # required for publish
+            "status":            "Draft",                     # optional (default Draft)
         }
 
     Returns
@@ -362,11 +373,17 @@ def search_jobs() -> dict:
 
 
 @frappe.whitelist()
-def publish_job(job_id: str) -> dict:
-    """Publish a Draft Job Opening to make it visible."""
+def publish_job(job_id: str | None = None) -> dict:
+    """Publish a Draft Job Opening to make it visible.
+
+    Enforces mandatory publish fields (job_title, employment_type, job_summary, company).
+    """
     try:
+        job_id = job_id or frappe.form_dict.get("job_id") or frappe.form_dict.get("name")
+        data = _extract_job_fields(frappe.form_dict, exclude={"job_id", "name"})
+
         service = JobService()
-        job = service.publish_job(job_id=job_id)
+        job = service.publish_job(job_id=job_id, data=data)
         return success_response(data=job, message="Job Opening published successfully.")
     except ATSException as exc:
         return _handle_ats_exception(exc)

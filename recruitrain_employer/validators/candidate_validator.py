@@ -123,6 +123,12 @@ CANDIDATE_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "passport_expiry",
         "visa_status",
         "work_permit",
+        "education",
+        "experience",
+        "skills",
+        "languages",
+        "certifications",
+        "documents",
     ]
 )
 
@@ -397,6 +403,86 @@ class CandidateValidator:
                 "The URL must begin with http:// or https://.",
                 field=field,
             )
+
+    def validate_languages(self, languages: list) -> None:
+        """Validate candidate languages payload list."""
+        if not isinstance(languages, list):
+            raise ATSValidationError("Languages must be a list of objects.", field="languages")
+        for idx, item in enumerate(languages):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Language item at index {idx} must be an object.", field="languages")
+            if not item.get("language") or not str(item.get("language")).strip():
+                raise ATSValidationError(f"Language name is required at index {idx}.", field="languages")
+
+    def validate_documents(self, documents: list) -> None:
+        """Validate candidate documents payload list."""
+        valid_types = {"Resume", "Passport", "Visa", "Driving License", "Certificate", "Other"}
+        if not isinstance(documents, list):
+            raise ATSValidationError("Documents must be a list of objects.", field="documents")
+        for idx, item in enumerate(documents):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Document item at index {idx} must be an object.", field="documents")
+            dt = item.get("document_type")
+            if dt and dt not in valid_types:
+                raise ATSValidationError(
+                    f"Invalid document_type '{dt}' at index {idx}. Must be one of: {', '.join(sorted(valid_types))}.",
+                    field="documents",
+                )
+
+    def validate_education(self, education: list) -> None:
+        """Validate candidate education payload list."""
+        if not isinstance(education, list):
+            raise ATSValidationError("Education must be a list of objects.", field="education")
+        for idx, item in enumerate(education):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Education item at index {idx} must be an object.", field="education")
+            if not item.get("institution") or not str(item.get("institution")).strip():
+                raise ATSValidationError(f"Institution is required at index {idx}.", field="education")
+            if not item.get("degree") or not str(item.get("degree")).strip():
+                raise ATSValidationError(f"Degree is required at index {idx}.", field="education")
+
+    def validate_experience(self, experience: list) -> None:
+        """Validate candidate experience payload list."""
+        if not isinstance(experience, list):
+            raise ATSValidationError("Experience must be a list of objects.", field="experience")
+        for idx, item in enumerate(experience):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Experience item at index {idx} must be an object.", field="experience")
+            if not item.get("company") or not str(item.get("company")).strip():
+                raise ATSValidationError(f"Company is required at index {idx}.", field="experience")
+            if not item.get("designation") or not str(item.get("designation")).strip():
+                raise ATSValidationError(f"Designation is required at index {idx}.", field="experience")
+
+    def validate_skills(self, skills: list) -> None:
+        """Validate candidate skills payload list."""
+        if not isinstance(skills, list):
+            raise ATSValidationError("Skills must be a list of objects.", field="skills")
+        for idx, item in enumerate(skills):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Skill item at index {idx} must be an object.", field="skills")
+            if not item.get("skill") or not str(item.get("skill")).strip():
+                raise ATSValidationError(f"Skill name is required at index {idx}.", field="skills")
+
+    def validate_certifications(self, certifications: list) -> None:
+        """Validate candidate certifications payload list."""
+        if not isinstance(certifications, list):
+            raise ATSValidationError("Certifications must be a list of objects.", field="certifications")
+        for idx, item in enumerate(certifications):
+            if not isinstance(item, dict):
+                raise ATSValidationError(f"Certification item at index {idx} must be an object.", field="certifications")
+
+    def validate_passport_and_visa(self, data: dict) -> None:
+        """Validate passport and visa fields."""
+        if not isinstance(data, dict):
+            raise ATSValidationError("Passport/Visa data must be a dictionary.")
+        if data.get("passport_expiry"):
+            exp = str(data["passport_expiry"]).strip()
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", exp):
+                raise ATSValidationError(
+                    f"'{exp}' is an invalid passport expiry date format. Expected YYYY-MM-DD.",
+                    field="passport_expiry",
+                )
+
 
 
 # ---------------------------------------------------------------------------

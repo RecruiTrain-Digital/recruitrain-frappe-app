@@ -168,7 +168,19 @@ class OfferService:
                 details={"offer_name": payload.get("offer_name")},
             ) from exc
 
+        self._notify(
+            title="New Offer Drafted",
+            message=f"Offer {doc.name} was created for candidate {doc.candidate}.",
+            priority="High",
+            category="Offer",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/offers/{doc.name}",
+            action_label="View Offer",
+        )
+
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
+
 
     def get_offer(self, offer_id: str) -> dict:
         """Retrieve a single Offer record by ID."""
@@ -324,7 +336,48 @@ class OfferService:
         )
 
         doc.reload()
+
+        self._notify(
+            title="Offer Status Updated",
+            message=f"Offer {doc.name} status updated to '{new_status}'.",
+            priority="High",
+            category="Offer",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/offers/{doc.name}",
+            action_label="View Offer",
+        )
+
         return self._serialize_offer(doc, fields=_DETAIL_FIELDS)
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Offer",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Offer notification error: {exc}")
+
 
     # ------------------------------------------------------------------
     # Private Helpers

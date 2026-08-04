@@ -39,6 +39,7 @@ DOCTYPE_CANDIDATE_DOCUMENT = "Candidate Document"
 
 DOCTYPE_COMPANY = "Company"
 DOCTYPE_EMPLOYER_USER = "Employer User"
+DOCTYPE_EMPLOYER_SETTINGS = "Employer Settings"
 
 DOCTYPE_JOB_OPENING = "Job Opening"
 DOCTYPE_JOB_APPLICATION = "Job Application"
@@ -49,7 +50,7 @@ DOCTYPE_INTERVIEW_FEEDBACK = "Interview Feedback"
 DOCTYPE_OFFER = "Offer"
 
 DOCTYPE_ACTIVITY_LOG = "Activity Log"
-DOCTYPE_NOTIFICATION = "Notification"
+DOCTYPE_NOTIFICATION = "Notification Log"
 
 # Master DocTypes
 DOCTYPE_SKILL = "Skill"
@@ -292,13 +293,18 @@ COMPANY_REQUIRED_FIELDS = [
     "status",
 ]
 
-#: Minimum required fields for creating a Job Opening record.
-JOB_REQUIRED_FIELDS = [
+#: Required fields for publishing a Job Opening record.
+JOB_PUBLISH_REQUIRED_FIELDS = [
     "job_title",
     "company",
     "employment_type",
     "job_summary",
+    "responsibilities",
+    "requirements",
 ]
+
+#: Minimum required fields for backward compatibility.
+JOB_REQUIRED_FIELDS = JOB_PUBLISH_REQUIRED_FIELDS
 
 #: Minimum required fields for creating a Job Application record.
 APPLICATION_REQUIRED_FIELDS = [
@@ -321,3 +327,49 @@ APP_NAME = "recruitrain_employer"
 
 #: Minimum password length enforced during registration and password change.
 MIN_PASSWORD_LENGTH = 8
+
+# ---------------------------------------------------------------------------
+# 11. Notification Constants
+# ---------------------------------------------------------------------------
+
+NOTIFICATION_TYPE_SYSTEM = "System"
+NOTIFICATION_TYPE_APPLICATION = "Application"
+NOTIFICATION_TYPE_INTERVIEW = "Interview"
+NOTIFICATION_TYPE_OFFER = "Offer"
+NOTIFICATION_TYPE_CANDIDATE = "Candidate"
+NOTIFICATION_TYPE_JOB = "Job"
+NOTIFICATION_TYPE_GENERAL = "General"
+
+ALLOWED_NOTIFICATION_TYPES = [
+    NOTIFICATION_TYPE_SYSTEM,
+    NOTIFICATION_TYPE_APPLICATION,
+    NOTIFICATION_TYPE_INTERVIEW,
+    NOTIFICATION_TYPE_OFFER,
+    NOTIFICATION_TYPE_CANDIDATE,
+    NOTIFICATION_TYPE_JOB,
+    NOTIFICATION_TYPE_GENERAL,
+]
+
+NOTIFICATION_PRIORITY_LOW = "Low"
+NOTIFICATION_PRIORITY_MEDIUM = "Medium"
+NOTIFICATION_PRIORITY_HIGH = "High"
+NOTIFICATION_PRIORITY_URGENT = "Urgent"
+
+ALLOWED_NOTIFICATION_PRIORITIES = [
+    NOTIFICATION_PRIORITY_LOW,
+    NOTIFICATION_PRIORITY_MEDIUM,
+    NOTIFICATION_PRIORITY_HIGH,
+    NOTIFICATION_PRIORITY_URGENT,
+]
+
+DEFAULT_NOTIFICATION_PREFERENCES = {
+    "new_application_email": True,
+    "new_application_inapp": True,
+    "interview_reminder_email": True,
+    "interview_reminder_inapp": True,
+    "offer_response_email": True,
+    "offer_response_inapp": True,
+    "system_alerts_email": True,
+    "system_alerts_inapp": True,
+}
+

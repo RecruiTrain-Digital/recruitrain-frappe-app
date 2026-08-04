@@ -39,6 +39,12 @@
   "facebook",
   "instagram",
   "twitter",
+  "general_settings_section",
+  "timezone",
+  "language",
+  "date_format",
+  "currency",
+  "theme",
   "status_section",
   "status",
   "verified",
@@ -216,6 +222,41 @@
    "fieldname": "twitter",
    "fieldtype": "Data",
    "label": "Twitter"
+  },
+  {
+   "fieldname": "general_settings_section",
+   "fieldtype": "Section Break",
+   "label": "General Settings"
+  },
+  {
+   "fieldname": "timezone",
+   "fieldtype": "Select",
+   "label": "Timezone",
+   "options": "UTC\nEurope/Berlin\nEurope/London\nEurope/Paris\nAsia/Kolkata\nAsia/Dubai\nAmerica/New_York\nAmerica/Los_Angeles\nAustralia/Sydney"
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "label": "Language",
+   "options": "en\nde\nfr\nes\nit\npt\nnl\npl\ncs\nro\nhu\nar\nzh\nja\nko\nhi\nid\ntr\nru"
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "Date Format",
+   "options": "DD-MM-YYYY\nMM-DD-YYYY\nYYYY-MM-DD\nDD/MM/YYYY\nMM/DD/YYYY\nDD.MM.YYYY"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Select",
+   "label": "Currency",
+   "options": "EUR\nUSD\nGBP\nCHF\nSEK\nNOK\nDKK\nPLN\nCZK\nINR\nAED\nSGD\nMYR\nBRL\nCAD\nAUD\nNZD\nJPY\nCNY\nKRW"
+  },
+  {
+   "fieldname": "theme",
+   "fieldtype": "Select",
+   "label": "Theme",
+   "options": "light\ndark\nsystem"
   },
   {
    "fieldname": "status_section",

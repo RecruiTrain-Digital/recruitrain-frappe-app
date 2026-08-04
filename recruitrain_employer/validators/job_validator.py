@@ -65,14 +65,139 @@ from recruitrain_employer.utils.constants import (
     DOCTYPE_COMPANY,
     DOCTYPE_DEPARTMENT,
     DOCTYPE_EMPLOYMENT_TYPE,
+    JOB_PUBLISH_REQUIRED_FIELDS,
     JOB_REQUIRED_FIELDS,
+    JOB_STATUS_DRAFT,
+    JOB_STATUS_OPEN,
 )
 from recruitrain_employer.utils.exceptions import ATSValidationError
 
 
+class JobValidationMode:
+    """Validation modes supported by the Job Opening domain."""
+
+    DRAFT = "draft"
+    UPDATE = "update"
+    PUBLISH = "publish"
+
+
 # ---------------------------------------------------------------------------
-# Field Allowlists
+# Field Allowlists & Aliases
 # ---------------------------------------------------------------------------
+
+#: Mapping from UI / camelCase / legacy field names to canonical database field names.
+JOB_FIELD_ALIASES: dict[str, str] = {
+    "title": "job_title",
+    "jobTitle": "job_title",
+    "code": "job_code",
+    "jobCode": "job_code",
+    "type": "employment_type",
+    "employmentType": "employment_type",
+    "summary": "job_summary",
+    "jobSummary": "job_summary",
+    "description": "job_summary",
+    "minSalary": "minimum_salary",
+    "minimumSalary": "minimum_salary",
+    "salary_min": "minimum_salary",
+    "salaryMin": "minimum_salary",
+    "maxSalary": "maximum_salary",
+    "maximumSalary": "maximum_salary",
+    "salary_max": "maximum_salary",
+    "salaryMax": "maximum_salary",
+    "minExperience": "minimum_experience",
+    "minimumExperience": "minimum_experience",
+    "maxExperience": "maximum_experience",
+    "maximumExperience": "maximum_experience",
+    "experience": "minimum_experience",
+    "closingDate": "closing_date",
+    "openingDate": "opening_date",
+    "targetJoiningDate": "target_joining_date",
+    "numberOfOpenings": "number_of_openings",
+    "numberOfPositions": "number_of_openings",
+    "number_of_positions": "number_of_openings",
+    "maxApplicants": "number_of_openings",
+    "hiringManager": "hiring_manager",
+    "salaryNegotiable": "salary_negotiable",
+    "featuredJob": "featured_job",
+    "category": "department",
+    "categorySub": "profession",
+    "allowDomestic": "allow_domestic_candidates",
+    "allowInternational": "allow_international_candidates",
+    "autoClose": "auto_close",
+    "germanLevel": "german_level",
+    "keywords": "keywords",
+    "street": "location",
+}
+
+
+def normalize_job_payload(data: dict) -> dict:
+    """Normalize incoming job payload by translating UI/camelCase aliases to canonical snake_case schema names.
+
+    Also normalizes values (such as employment_type formatting). Modifies input payload in-place
+    and returns the normalized dictionary.
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    mapped: dict = {}
+    for key, val in list(data.items()):
+        canonical = JOB_FIELD_ALIASES.get(key, key)
+
+        if key == "compensationType" and isinstance(val, str):
+            if val.lower() in ("negotiable", "yes", "true"):
+                mapped["salary_negotiable"] = 1
+            continue
+
+        mapped[canonical] = val
+
+    # Value normalization for employment_type
+    if "employment_type" in mapped and mapped["employment_type"]:
+        raw_emp = str(mapped["employment_type"]).strip()
+        lower_emp = raw_emp.lower()
+        if lower_emp in ("full-time", "full time", "full_time"):
+            mapped["employment_type"] = "Full Time"
+        elif lower_emp in ("part-time", "part time", "part_time"):
+            mapped["employment_type"] = "Part Time"
+        elif lower_emp in ("contract", "contractual"):
+            mapped["employment_type"] = "Contract"
+
+    # Value normalization for department
+    if "department" in mapped and mapped["department"]:
+        try:
+            from recruitrain_employer.validators.department_validator import (
+                validate_and_normalize_department,
+            )
+            validate_and_normalize_department(mapped)
+        except Exception:
+            pass
+
+    # Value normalization for profession
+    if "profession" in mapped and mapped["profession"]:
+        try:
+            from recruitrain_employer.validators.profession_validator import (
+                validate_and_normalize_profession,
+            )
+            validate_and_normalize_profession(mapped)
+        except Exception:
+            pass
+
+    # Value normalization for industry
+    if "industry" in mapped and mapped["industry"]:
+        try:
+            from recruitrain_employer.validators.industry_validator import (
+                validate_and_normalize_industry,
+            )
+            validate_and_normalize_industry(mapped)
+        except Exception:
+            pass
+
+    data.clear()
+    data.update(mapped)
+    return data
+
+
+normalize_update_payload = normalize_job_payload
+
 
 #: Fields a caller may supply when creating a new Job Opening.
 JOB_CREATABLE_FIELDS: frozenset[str] = frozenset(
@@ -160,56 +285,86 @@ JOB_UPDATABLE_FIELDS: frozenset[str] = frozenset(
 
 
 class JobValidator:
-    """Stateless validator for Job Opening create and update payloads.
+    """Stateless validator for Job Opening create, draft, update, and publish payloads.
 
     Instantiated once per service call.  All methods are side-effect-free
     except for raising ``ATSValidationError`` on invalid input.
-
-    Usage
-    -----
-    ::
-
-        validator = JobValidator()
-        validator.validate_create(data)   # raises on failure
-        validator.validate_update(data)   # raises on failure
     """
 
     # ------------------------------------------------------------------
     # Top-Level Validators (called by JobService)
     # ------------------------------------------------------------------
 
-    def validate_create(self, data: dict) -> None:
-        """Validate a Job Opening create payload."""
-        self.validate_required_fields(data, JOB_REQUIRED_FIELDS)
+    def validate_draft(self, data: dict) -> None:
+        """Validate a Job Opening draft payload (Draft Validation Mode)."""
+        normalize_job_payload(data)
         self.validate_salary_range(data)
         self.validate_dates(data)
         self.validate_employment_type(data)
         self.validate_department(data)
+        self.validate_profession(data)
+        self.validate_industry(data)
         self.validate_company(data)
 
         if data.get("status"):
             self._validate_status(data["status"])
 
+    def validate_create(self, data: dict) -> None:
+        """Validate a Job Opening create payload."""
+        normalize_job_payload(data)
+        status = data.get("status", JOB_STATUS_DRAFT)
+        is_published = bool(data.get("published"))
+
+        if status == JOB_STATUS_OPEN or is_published:
+            self.validate_publish(data)
+        else:
+            self.validate_draft(data)
+
     def validate_update(self, data: dict) -> None:
-        """Validate a Job Opening update payload."""
+        """Validate a Job Opening update payload (Update Validation Mode)."""
         if not data:
             raise ATSValidationError(
                 "No update fields were provided. "
                 "Please supply at least one field to update."
             )
 
+        normalize_job_payload(data)
+
+        # Ignore and strip unknown / non-updatable fields rather than failing validation
         disallowed = set(data.keys()) - JOB_UPDATABLE_FIELDS
         if disallowed:
+            frappe.logger().warning(
+                f"[JobValidator] Stripping unknown or non-updatable fields from update payload: {sorted(disallowed)}"
+            )
+            for f in disallowed:
+                data.pop(f, None)
+
+        if not data:
             raise ATSValidationError(
-                f"The following fields cannot be updated via this endpoint: "
-                f"{', '.join(sorted(disallowed))}.",
-                details={"disallowed_fields": sorted(disallowed)},
+                "No valid updatable fields were provided in the payload."
             )
 
         self.validate_salary_range(data)
         self.validate_dates(data)
         self.validate_employment_type(data)
         self.validate_department(data)
+        self.validate_profession(data)
+        self.validate_industry(data)
+
+        if data.get("status"):
+            self._validate_status(data["status"])
+
+    def validate_publish(self, data: dict) -> None:
+        """Validate a Job Opening prior to publishing (Publish Validation Mode)."""
+        normalize_job_payload(data)
+        self.validate_required_fields(data, JOB_PUBLISH_REQUIRED_FIELDS)
+        self.validate_salary_range(data)
+        self.validate_dates(data)
+        self.validate_employment_type(data)
+        self.validate_department(data)
+        self.validate_profession(data)
+        self.validate_industry(data)
+        self.validate_company(data)
 
         if data.get("status"):
             self._validate_status(data["status"])
@@ -300,91 +455,64 @@ class JobValidator:
                     details={"opening_date": str(opening_date), "closing_date": str(closing_date)},
                 )
 
-    def validate_employment_type(self, data: dict) -> None:
-        """Assert that ``employment_type`` exists in the Employment Type master.
+    def validate_employment_type(self, data: dict) -> str | None:
+        """Validate and normalize ``employment_type`` against the Employment Type master.
 
-        Validation is skipped when ``employment_type`` is not provided.
+        Performs case-insensitive, hyphen/space-agnostic lookup and alias resolution,
+        mutating ``data['employment_type']`` with the canonical master record name.
 
         Parameters
         ----------
         data : dict
-            The input payload.  Key examined: ``employment_type``.
+            The input payload dictionary.
+
+        Returns
+        -------
+        str or None
+            The canonical Employment Type master name, or None if not provided.
 
         Raises
         ------
         ATSValidationError
             If the Employment Type record does not exist in the database.
         """
-        employment_type = data.get("employment_type")
-        if not employment_type:
-            return
-
-        if not frappe.db.exists(DOCTYPE_EMPLOYMENT_TYPE, employment_type):
-            raise ATSValidationError(
-                f"Employment Type '{employment_type}' does not exist. "
-                "Please use a valid Employment Type from the master list.",
-                field="employment_type",
-                details={"employment_type": employment_type},
-            )
+        from recruitrain_employer.validators.employment_type_validator import (
+            validate_and_normalize_employment_type_field,
+        )
+        return validate_and_normalize_employment_type_field(data)
 
     def validate_department(self, data: dict) -> None:
-        """Assert that ``department`` exists in the Department master when provided.
+        """Validate and normalize Department against the master DocType."""
+        from recruitrain_employer.validators.department_validator import (
+            validate_and_normalize_department,
+        )
+        validate_and_normalize_department(data)
 
-        Department is optional on a Job Opening.  Validation is skipped when
-        the field is absent or empty.
+    def validate_profession(self, data: dict) -> None:
+        """Validate and normalize Profession against the master DocType."""
+        from recruitrain_employer.validators.profession_validator import (
+            validate_and_normalize_profession,
+        )
+        validate_and_normalize_profession(data)
 
-        Parameters
-        ----------
-        data : dict
-            The input payload.  Key examined: ``department``.
+    def validate_industry(self, data: dict) -> None:
+        """Validate and normalize Industry against the master DocType."""
+        from recruitrain_employer.validators.industry_validator import (
+            validate_and_normalize_industry,
+        )
+        validate_and_normalize_industry(data)
 
-        Raises
-        ------
-        ATSValidationError
-            If the Department record does not exist in the database.
+    def validate_company(self, data: dict) -> str:
+        """Validate and resolve company from the authenticated Employer User.
+
+        Forces ``data['company']`` to match the authenticated user's company
+        and validates that the company exists and is active in the database.
         """
-        department = data.get("department")
-        if not department:
-            return
-
-        if not frappe.db.exists(DOCTYPE_DEPARTMENT, department):
-            raise ATSValidationError(
-                f"Department '{department}' does not exist. "
-                "Please use a valid Department from the master list.",
-                field="department",
-                details={"department": department},
-            )
-
-    def validate_company(self, data: dict) -> None:
-        """Assert that the ``company`` field references an existing Company record.
-
-        This check is performed only during creation (``validate_create``);
-        ``company`` is excluded from the updatable-fields allowlist so this
-        validator is never called on updates.
-
-        Parameters
-        ----------
-        data : dict
-            The input payload.  Key examined: ``company``.
-
-        Raises
-        ------
-        ATSValidationError
-            If the Company record does not exist in the database.
-        """
-        company = data.get("company")
-        if not company:
-            # Required-field check in validate_required_fields already covers
-            # the missing-company case; skip here to avoid duplicate errors.
-            return
-
-        if not frappe.db.exists(DOCTYPE_COMPANY, company):
-            raise ATSValidationError(
-                f"Company '{company}' does not exist. "
-                "Please use a valid Company name.",
-                field="company",
-                details={"company": company},
-            )
+        from recruitrain_employer.utils.permissions import get_current_company
+        current_company = get_current_company()
+        if isinstance(data, dict):
+            data["company"] = current_company
+        return current_company
 
     # ------------------------------------------------------------------
     # Private Helpers

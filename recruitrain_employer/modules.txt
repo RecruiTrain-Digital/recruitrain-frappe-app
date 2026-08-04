@@ -1,4 +1,3 @@
-bench new-app recruitrain_employer
 Recruitment
 Settings
 Master

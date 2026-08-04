@@ -22,6 +22,8 @@ Package Layout
 - offers.py         Offer letter generation & management endpoints
 - dashboard.py      Aggregated metrics & dashboard data endpoints
 - notifications.py  In-app notification delivery endpoints
+- settings.py       Employer Settings (general, branding, notification,
+                    security, recruitment, integration, audit) endpoints
 - common.py         Shared utility endpoints (lookups, file uploads, etc.)
 
 All endpoints MUST be decorated with ``@frappe.whitelist()`` (or the

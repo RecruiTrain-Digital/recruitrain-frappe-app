@@ -271,8 +271,21 @@ class CandidateService:
                 details={"field": "email", "value": data.get("email")},
             ) from exc
 
+        from recruitrain_employer.utils.permissions import get_current_company
+        self._notify(
+            title="New Candidate Added",
+            message=f"Candidate profile '{doc.first_name} {doc.last_name}' ({doc.name}) was created.",
+            priority="Low",
+            category="Candidate",
+            company=doc.get("company") or get_current_company(),
+            entity_id=doc.name,
+            action_url=f"/candidates/{doc.name}",
+            action_label="View Candidate",
+        )
+
         batch_apps = self._get_batch_latest_applications([doc.name])
         return self._serialize_candidate(doc, fields=_DETAIL_FIELDS, application=batch_apps.get(doc.name))
+
 
     def get_candidate(self, candidate_id: str) -> dict:
         """Retrieve a full Candidate profile by record name.
@@ -360,7 +373,18 @@ class CandidateService:
                     f"Candidate conflict during update.",
                     details={"candidate_id": candidate_id},
                 ) from exc
-            # TODO: Log changed_fields to Activity Log via ActivityLogService.
+            from recruitrain_employer.utils.permissions import get_current_company
+            self._notify(
+                title="Candidate Profile Updated",
+                message=f"Candidate profile for {getattr(doc, 'candidate_name', doc.name)} was updated.",
+                priority="Low",
+                category="Candidate",
+                company=getattr(doc, "company", "") or get_current_company(),
+                entity_id=doc.name,
+                action_url=f"/candidates/{doc.name}",
+                action_label="View Candidate",
+            )
+
 
         batch_apps = self._get_batch_latest_applications([candidate_id])
         return self._serialize_candidate(doc, fields=_DETAIL_FIELDS, application=batch_apps.get(candidate_id))
@@ -568,71 +592,321 @@ class CandidateService:
         }
 
     # ------------------------------------------------------------------
-    # Sub-Resource Queries (Future Sprints)
+    # Sub-Resource Operations & International Candidate Domain
     # ------------------------------------------------------------------
 
-    def get_education(self, candidate_id: str) -> list:
-        """Return all Candidate Education records for a Candidate.
+    def get_education(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Education records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("education") or [])
 
-        TODO: Implement in the Candidate Sub-Resources sprint.
+    def update_education(self, candidate_id: str, education: list) -> dict:
+        """Replace all Candidate Education records for a Candidate."""
+        self._validator.validate_education(education)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("education", education)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def get_experience(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Experience records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("experience") or [])
+
+    def update_experience(self, candidate_id: str, experience: list) -> dict:
+        """Replace all Candidate Experience records for a Candidate."""
+        self._validator.validate_experience(experience)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("experience", experience)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def get_skills(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Skill records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("skills") or [])
+
+    def update_skills(self, candidate_id: str, skills: list) -> dict:
+        """Replace all Candidate Skill records for a Candidate."""
+        self._validator.validate_skills(skills)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("skills", skills)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def get_certifications(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Certification records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("certifications") or [])
+
+    def update_certifications(self, candidate_id: str, certifications: list) -> dict:
+        """Replace all Candidate Certification records for a Candidate."""
+        self._validator.validate_certifications(certifications)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("certifications", certifications)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def get_languages(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Language records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("languages") or [])
+
+    def update_languages(self, candidate_id: str, languages: list) -> dict:
+        """Replace all Candidate Language records for a Candidate."""
+        self._validator.validate_languages(languages)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("languages", languages)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def get_documents(self, candidate_id: str) -> list[dict]:
+        """Return all Candidate Document records for a Candidate."""
+        doc = self._get_or_raise(candidate_id)
+        return self._serialize_child_table(doc.get("documents") or [])
+
+    def update_documents(self, candidate_id: str, documents: list) -> dict:
+        """Replace all Candidate Document records for a Candidate."""
+        self._validator.validate_documents(documents)
+        doc = self._get_or_raise(candidate_id)
+        doc.set("documents", documents)
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def update_passport_and_visa(self, candidate_id: str, data: dict) -> dict:
+        """Update passport and visa details for a Candidate."""
+        self._validator.validate_passport_and_visa(data)
+        doc = self._get_or_raise(candidate_id)
+        for field in ("passport_number", "passport_expiry", "visa_status", "work_permit"):
+            if field in data:
+                setattr(doc, field, data[field])
+        doc.save(ignore_permissions=True)
+        return self.get_candidate(candidate_id)
+
+    def list_international_candidates(
+        self,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        filters: dict | None = None,
+        order_by: str = "creation",
+        order_dir: str = "desc",
+    ) -> dict:
+        """Return a paginated list of International Candidates based on passport, visa, work permit, or country mismatch."""
+        page, page_size = self._sanitise_pagination(page, page_size)
+        order_clause = self._sanitise_order_by(order_by, order_dir)
+        user_filters = filters or {}
+
+        conditions = [
+            "(work_permit = 1 OR (visa_status IS NOT NULL AND visa_status != '') OR (passport_number IS NOT NULL AND passport_number != '') OR (nationality IS NOT NULL AND country IS NOT NULL AND nationality != country))"
+        ]
+        values = []
+
+        if user_filters.get("status"):
+            conditions.append("status = %s")
+            values.append(user_filters["status"])
+        if user_filters.get("nationality"):
+            conditions.append("nationality = %s")
+            values.append(user_filters["nationality"])
+        if user_filters.get("country"):
+            conditions.append("country = %s")
+            values.append(user_filters["country"])
+        if user_filters.get("visa_status"):
+            conditions.append("visa_status = %s")
+            values.append(user_filters["visa_status"])
+        if user_filters.get("work_permit") is not None:
+            conditions.append("work_permit = %s")
+            values.append(1 if str(user_filters["work_permit"]).lower() in ("true", "1") else 0)
+
+        where_clause = " AND ".join(conditions)
+
+        count_query = f"SELECT COUNT(*) FROM `tabCandidate` WHERE {where_clause}"
+        total = frappe.db.sql(count_query, tuple(values))[0][0]
+
+        offset = (page - 1) * page_size
+        query = f"SELECT name FROM `tabCandidate` WHERE {where_clause} ORDER BY {order_clause} LIMIT %s OFFSET %s"
+        query_vals = tuple(values) + (page_size, offset)
+        rows = frappe.db.sql(query, query_vals, as_dict=True)
+
+        candidate_ids = [r["name"] for r in rows]
+        batch_applications = self._get_batch_latest_applications(candidate_ids)
+
+        data_list = []
+        for cid in candidate_ids:
+            cand_doc = self._get_or_raise(cid)
+            data_list.append(
+                self._serialize_candidate(
+                    cand_doc, fields=_DETAIL_FIELDS, application=batch_applications.get(cid)
+                )
+            )
+
+        return {
+            "data": data_list,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def list_domestic_candidates(
+        self,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        filters: dict | None = None,
+        order_by: str = "creation",
+        order_dir: str = "desc",
+    ) -> dict:
+        """List domestic candidates with database-level pagination and filtering.
+
+        Domestic candidates are defined as candidate records where:
+        - work_permit is 0 or NULL
+        - visa_status is NULL, empty, or 'Not Applicable'
+        - passport_number is NULL or empty
+        - nationality and country match or either is unspecified
         """
-        pass
+        user_filters = filters or {}
 
-    def get_experience(self, candidate_id: str) -> list:
-        """Return all Candidate Experience records for a Candidate.
+        valid_order_fields = {
+            "creation",
+            "modified",
+            "first_name",
+            "last_name",
+            "status",
+            "years_of_experience",
+        }
+        safe_order_by = order_by if order_by in valid_order_fields else "creation"
+        safe_order_dir = "ASC" if order_dir.lower() == "asc" else "DESC"
+        order_clause = f"`{safe_order_by}` {safe_order_dir}"
 
-        TODO: Implement in the Candidate Sub-Resources sprint.
-        """
-        pass
+        conditions = [
+            "(work_permit = 0 OR work_permit IS NULL)",
+            "(visa_status IS NULL OR visa_status = '' OR visa_status = 'Not Applicable')",
+            "(passport_number IS NULL OR passport_number = '')",
+            "(nationality IS NULL OR country IS NULL OR nationality = country)",
+        ]
+        values = []
 
-    def get_skills(self, candidate_id: str) -> list:
-        """Return all Candidate Skill records for a Candidate.
+        if user_filters.get("search"):
+            conditions.append(
+                "(first_name LIKE %s OR last_name LIKE %s OR email LIKE %s OR candidate_name LIKE %s)"
+            )
+            term = f"%{user_filters['search']}%"
+            values.extend([term, term, term, term])
 
-        TODO: Implement in the Candidate Sub-Resources sprint.
-        """
-        pass
+        if user_filters.get("status"):
+            conditions.append("status = %s")
+            values.append(user_filters["status"])
+        if user_filters.get("profession"):
+            conditions.append("profession = %s")
+            values.append(user_filters["profession"])
+        if user_filters.get("city"):
+            conditions.append("city = %s")
+            values.append(user_filters["city"])
+        if user_filters.get("country"):
+            conditions.append("country = %s")
+            values.append(user_filters["country"])
 
-    def get_certifications(self, candidate_id: str) -> list:
-        """Return all Candidate Certification records for a Candidate.
+        where_clause = " AND ".join(conditions)
 
-        TODO: Implement in the Candidate Sub-Resources sprint.
-        """
-        pass
+        count_query = f"SELECT COUNT(*) FROM `tabCandidate` WHERE {where_clause}"
+        total = frappe.db.sql(count_query, tuple(values))[0][0]
 
-    def get_languages(self, candidate_id: str) -> list:
-        """Return all Candidate Language records for a Candidate.
+        offset = (page - 1) * page_size
+        query = f"SELECT name FROM `tabCandidate` WHERE {where_clause} ORDER BY {order_clause} LIMIT %s OFFSET %s"
+        query_vals = tuple(values) + (page_size, offset)
+        rows = frappe.db.sql(query, query_vals, as_dict=True)
 
-        TODO: Implement in the Candidate Sub-Resources sprint.
-        """
-        pass
+        candidate_ids = [r["name"] for r in rows]
+        batch_applications = self._get_batch_latest_applications(candidate_ids)
 
-    def get_documents(self, candidate_id: str) -> list:
-        """Return all Candidate Document records for a Candidate.
+        data_list = []
+        for cid in candidate_ids:
+            cand_doc = self._get_or_raise(cid)
+            data_list.append(
+                self._serialize_candidate(
+                    cand_doc, fields=_DETAIL_FIELDS, application=batch_applications.get(cid)
+                )
+            )
 
-        TODO: Implement in the Document Upload sprint.
-        """
-        pass
+        return {
+            "data": data_list,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
-    # ------------------------------------------------------------------
-    # Profile Completeness (Future Sprint)
-    # ------------------------------------------------------------------
+    def get_domestic_candidate(self, candidate_id: str) -> dict:
+        """Retrieve details for a domestic candidate."""
+        return self.get_candidate(candidate_id=candidate_id)
+
+    def update_domestic_candidate(self, candidate_id: str, data: dict) -> dict:
+        """Update profile details for a domestic candidate."""
+        return self.update_candidate(candidate_id=candidate_id, data=data)
 
     def get_profile_completeness(self, candidate_id: str) -> dict:
-        """Calculate a profile completeness score for the given Candidate.
+        """Calculate a granular profile completeness score for the Candidate."""
+        doc = self._get_or_raise(candidate_id)
 
-        Scoring Sections (planned)
-        --------------------------
-        - Basic Info (name, photo, contact)  — 20 %
-        - Work Experience                    — 25 %
-        - Education                          — 20 %
-        - Skills (at least 3)                — 15 %
-        - Resume / CV document               — 15 %
-        - Languages                          —  5 %
+        scores = {}
+        missing = []
 
-        TODO: Implement in the Profile Completeness sprint.
-        TODO: Return list of missing sections for frontend nudge prompts.
-        """
-        pass
+        # 1. Personal & Basic Info (20%)
+        personal_fields = ["first_name", "last_name", "date_of_birth", "gender"]
+        p_filled = sum(1 for f in personal_fields if doc.get(f))
+        scores["personal_info"] = round((p_filled / len(personal_fields)) * 20, 2)
+        if p_filled < len(personal_fields):
+            missing.extend([f for f in personal_fields if not doc.get(f)])
+
+        # 2. Contact & Location (15%)
+        contact_fields = ["email", "mobile_no", "city", "country"]
+        c_filled = sum(1 for f in contact_fields if doc.get(f))
+        scores["contact_location"] = round((c_filled / len(contact_fields)) * 15, 2)
+        if c_filled < len(contact_fields):
+            missing.extend([f for f in contact_fields if not doc.get(f)])
+
+        # 3. Professional Info (15%)
+        prof_fields = ["current_job_title", "years_of_experience", "notice_period", "expected_salary"]
+        pr_filled = sum(1 for f in prof_fields if doc.get(f) is not None and doc.get(f) != "")
+        scores["professional_info"] = round((pr_filled / len(prof_fields)) * 15, 2)
+        if pr_filled < len(prof_fields):
+            missing.extend([f for f in prof_fields if doc.get(f) is None or doc.get(f) == ""])
+
+        # 4. Education (15%)
+        edu = doc.get("education") or []
+        scores["education"] = 15 if len(edu) > 0 else 0
+        if len(edu) == 0:
+            missing.append("education")
+
+        # 5. Experience (15%)
+        exp = doc.get("experience") or []
+        scores["experience"] = 15 if len(exp) > 0 else 0
+        if len(exp) == 0:
+            missing.append("experience")
+
+        # 6. Skills (10%)
+        skills = doc.get("skills") or []
+        scores["skills"] = 10 if len(skills) >= 1 else 0
+        if len(skills) == 0:
+            missing.append("skills")
+
+        # 7. Resume & Documents / Passport (10%)
+        docs = doc.get("documents") or []
+        has_resume = bool(doc.get("resume")) or any(d.get("document_type") == "Resume" for d in docs)
+        scores["documents"] = 10 if has_resume else 0
+        if not has_resume:
+            missing.append("resume")
+
+        total_score = int(sum(scores.values()))
+
+        # Save score back to document profile_completion field
+        if doc.profile_completion != total_score:
+            doc.profile_completion = total_score
+            doc.save(ignore_permissions=True)
+
+        return {
+            "candidate_id": candidate_id,
+            "overall_completeness": total_score,
+            "section_scores": scores,
+            "missing_fields": missing,
+        }
 
     # ------------------------------------------------------------------
     # Private Helpers
@@ -745,6 +1019,18 @@ class CandidateService:
         return latest_apps
 
     @staticmethod
+    def _serialize_child_table(child_records: list) -> list[dict]:
+        """Convert child document list to clean list of dicts excluding Frappe metadata."""
+        serialized = []
+        for row in child_records:
+            if isinstance(row, dict):
+                r_dict = {k: v for k, v in row.items() if k not in _FRAPPE_METADATA_FIELDS}
+            else:
+                r_dict = {k: getattr(row, k) for k in row.as_dict().keys() if k not in _FRAPPE_METADATA_FIELDS}
+            serialized.append(r_dict)
+        return serialized
+
+    @staticmethod
     def _serialize_candidate(doc, fields: list[str], application: dict | None = None) -> dict:
         """Serialise a Frappe Candidate Document to a plain, JSON-safe dict.
 
@@ -815,6 +1101,37 @@ class CandidateService:
         if "bio" not in data:
             data["bio"] = None
 
+        # Passport & Visa & International indicator
+        pass_num = data.get("passport_number") or (doc.get("passport_number") if not isinstance(doc, dict) else None)
+        pass_exp = data.get("passport_expiry") or (doc.get("passport_expiry") if not isinstance(doc, dict) else None)
+        visa_st = data.get("visa_status") or (doc.get("visa_status") if not isinstance(doc, dict) else None)
+        work_perm = data.get("work_permit") if "work_permit" in data else (doc.get("work_permit") if not isinstance(doc, dict) else 0)
+
+        data["passport_number"] = pass_num
+        data["passport_expiry"] = str(pass_exp) if pass_exp else None
+        data["visa_status"] = visa_st
+        data["work_permit"] = bool(work_perm)
+
+        nat = data.get("nationality") or (doc.get("nationality") if not isinstance(doc, dict) else None)
+        ctry = data.get("country") or (doc.get("country") if not isinstance(doc, dict) else None)
+        is_intl = bool(
+            (nat and ctry and str(nat).strip().lower() != str(ctry).strip().lower())
+            or data["work_permit"]
+            or (data["visa_status"] and str(data["visa_status"]).strip().lower() not in ("", "not applicable"))
+            or data["passport_number"]
+        )
+        data["is_international"] = is_intl
+        data["is_domestic"] = not is_intl
+
+        # Include child tables if available on doc
+        if not isinstance(doc, dict):
+            data["education"] = CandidateService._serialize_child_table(doc.get("education") or [])
+            data["experience_list"] = CandidateService._serialize_child_table(doc.get("experience") or [])
+            data["skills"] = CandidateService._serialize_child_table(doc.get("skills") or [])
+            data["languages"] = CandidateService._serialize_child_table(doc.get("languages") or [])
+            data["certifications"] = CandidateService._serialize_child_table(doc.get("certifications") or [])
+            data["documents"] = CandidateService._serialize_child_table(doc.get("documents") or [])
+
         # Enrichment: latest Job Application details
         if application:
             data["application"] = {
@@ -849,16 +1166,7 @@ class CandidateService:
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:
-        """Apply only genuinely changed fields onto a Frappe Document object.
-
-        Translates input contract aliases to underlying DocType schema fields:
-        - phone / mobile_number -> mobile_no
-        - linkedin_url -> linkedin
-        - portfolio_url -> portfolio
-        - experience / total_experience_years -> years_of_experience
-        - salary -> expected_salary
-        - location / current_location -> preferred_location
-        """
+        """Apply only genuinely changed fields onto a Frappe Document object."""
         changed: dict = {}
         meta = frappe.get_meta(doc.doctype)
 
@@ -879,9 +1187,18 @@ class CandidateService:
             target_key = aliases.get(k, k)
             normalized_data[target_key] = v
 
+        child_table_fields = {"education", "experience", "skills", "languages", "certifications", "documents"}
+
         for field, new_value in normalized_data.items():
+            if field in child_table_fields:
+                if isinstance(new_value, list):
+                    doc.set(field, new_value)
+                    changed[field] = new_value
+                continue
+
             if not meta.has_field(field):
                 continue
+
             current_value = doc.get(field)
             if current_value != new_value:
                 setattr(doc, field, new_value)
@@ -901,6 +1218,12 @@ class CandidateService:
             orm["city"] = filters["city"]
         if filters.get("country"):
             orm["country"] = filters["country"]
+        if filters.get("nationality"):
+            orm["nationality"] = filters["nationality"]
+        if filters.get("visa_status"):
+            orm["visa_status"] = filters["visa_status"]
+        if filters.get("work_permit") is not None:
+            orm["work_permit"] = 1 if str(filters["work_permit"]).lower() in ("true", "1") else 0
         if filters.get("location") or filters.get("current_location"):
             loc = filters.get("location") or filters.get("current_location")
             orm["preferred_location"] = ["like", f"%{loc}%"]
@@ -949,3 +1272,32 @@ class CandidateService:
         safe_field = order_by if order_by in ALLOWED_SORT_FIELDS else "creation"
         safe_dir = "asc" if str(order_dir).lower() == "asc" else "desc"
         return f"{safe_field} {safe_dir}"
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Candidate",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Candidate notification error: {exc}")
+

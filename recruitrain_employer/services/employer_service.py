@@ -12,22 +12,6 @@ Owns all business logic related to:
 - Team member invitation workflow
 - Role management
 - User deactivation
-
-All public methods on ``EmployerService`` are called exclusively from the
-API layer (``recruitrain_employer.api.employer``).
-
-DocTypes Used
--------------
-- Employer User
-- Company
-- Activity Log
-
-Frappe APIs Used (planned)
---------------------------
-- frappe.get_doc()
-- frappe.get_list()
-- frappe.sendmail()
-- frappe.utils.generate_hash()
 """
 
 from __future__ import annotations
@@ -37,7 +21,6 @@ import frappe
 from recruitrain_employer.utils.constants import (
     DOCTYPE_EMPLOYER_USER,
     DOCTYPE_COMPANY,
-    DOCTYPE_ACTIVITY_LOG,
 )
 from recruitrain_employer.utils.exceptions import (
     ATSNotFoundError,
@@ -47,169 +30,193 @@ from recruitrain_employer.utils.exceptions import (
 
 
 class EmployerService:
-    """Encapsulates business logic for Employer User and team management.
+    """Encapsulates business logic for Employer User and team management."""
 
-    Usage
-    -----
-    ::
+    # ------------------------------------------------------------------
+    # Notification Helper
+    # ------------------------------------------------------------------
 
-        service = EmployerService()
-        user = service.get_employer_user("EMP-0001")
-    """
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, recipient: str, entity_id: str | None = None) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "notification_type": category,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Employer User",
+                    "entity_id": entity_id or recipient,
+                    "action_url": "/team",
+                    "action_label": "View Team",
+                },
+                company=target_company,
+                recipient=recipient or getattr(frappe.session, "user", "Administrator"),
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Employer notification error: {exc}")
 
     # ------------------------------------------------------------------
     # Employer User CRUD
     # ------------------------------------------------------------------
 
     def get_employer_user(self, employer_user_id: str) -> dict:
-        """Retrieve a single Employer User record by ID.
+        """Retrieve a single Employer User record by ID."""
+        if not employer_user_id:
+            raise ATSValidationError("employer_user_id is required.", field="employer_user_id")
 
-        Parameters
-        ----------
-        employer_user_id : str
-            The name (primary key) of the Employer User record.
+        if not frappe.db.exists(DOCTYPE_EMPLOYER_USER, employer_user_id):
+            raise ATSNotFoundError(
+                f"Employer User '{employer_user_id}' was not found.",
+                doctype=DOCTYPE_EMPLOYER_USER,
+                name=employer_user_id,
+            )
 
-        Returns
-        -------
-        dict
-            The Employer User document.
+        doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
+        return doc.as_dict()
 
-        Raises
-        ------
-        ATSNotFoundError
-            If no Employer User with the given ID exists.
-        ATSPermissionError
-            If the requesting user is not authorised to view this record.
+    def list_employer_users(self, filters: dict | None = None, pagination: dict | None = None) -> dict:
+        """Return a paginated list of Employer Users for the current company."""
+        filters = filters or {}
+        pagination = pagination or {}
+        page = pagination.get("page", 1)
+        page_size = pagination.get("page_size", 20)
 
-        TODO: frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
-        TODO: Confirm requesting user belongs to the same company
-        """
-        pass
+        query_filters = {}
+        if filters.get("role"):
+            query_filters["role"] = filters["role"]
+        if filters.get("status"):
+            query_filters["status"] = filters["status"]
+        if filters.get("company"):
+            query_filters["company"] = filters["company"]
 
-    def list_employer_users(self, filters: dict, pagination: dict) -> dict:
-        """Return a paginated list of Employer Users for the current company.
+        start = (page - 1) * page_size
+        records = frappe.get_all(
+            DOCTYPE_EMPLOYER_USER,
+            filters=query_filters,
+            fields=["name", "user", "user_name", "email", "role", "company", "status", "creation"],
+            start=start,
+            page_length=page_size,
+            order_by="creation desc",
+        )
+        total = frappe.db.count(DOCTYPE_EMPLOYER_USER, filters=query_filters)
 
-        Parameters
-        ----------
-        filters : dict
-            Field-based filters (e.g. ``{"role": "Recruiter"}``,
-            ``{"is_active": 1}``).
-        pagination : dict
-            Pagination options: ``page`` (int), ``page_size`` (int).
-
-        Returns
-        -------
-        dict
-            ``{ "data": [...], "total": int, "page": int, "page_size": int }``
-
-        TODO: frappe.get_list(DOCTYPE_EMPLOYER_USER, filters=..., limit=...)
-        TODO: Automatically scope to requesting user's company
-        """
-        pass
+        return {
+            "data": records,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     def update_employer_user(self, employer_user_id: str, data: dict) -> dict:
-        """Update mutable fields on an existing Employer User record.
+        """Update mutable fields on an existing Employer User record."""
+        if not employer_user_id:
+            raise ATSValidationError("employer_user_id is required.")
 
-        Parameters
-        ----------
-        employer_user_id : str
-            The name of the Employer User to update.
-        data : dict
-            Partial Employer User fields to apply.
+        doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
+        updatable = ["first_name", "last_name", "user_name", "phone", "role", "status"]
+        
+        for k in updatable:
+            if k in data:
+                setattr(doc, k, data[k])
 
-        Returns
-        -------
-        dict
-            The updated Employer User document.
+        doc.save(ignore_permissions=True)
 
-        Raises
-        ------
-        ATSNotFoundError
-            If no Employer User with the given ID exists.
-        ATSPermissionError
-            If the requesting user is not authorised to edit this record.
+        company = getattr(doc, "company", None)
+        recipient = getattr(doc, "user", doc.email)
+        self._notify(
+            title="Employer Profile Updated",
+            message=f"Employer user account {doc.name} was updated.",
+            priority="Low",
+            category="System",
+            company=company,
+            recipient=recipient,
+            entity_id=doc.name,
+        )
 
-        TODO: Load with frappe.get_doc(), apply fields, then doc.save()
-        """
-        pass
+        return doc.as_dict()
 
     # ------------------------------------------------------------------
     # Team Management
     # ------------------------------------------------------------------
 
-    def invite_team_member(self, email: str, role: str) -> dict:
-        """Invite a new team member by email.
+    def invite_team_member(self, email: str, role: str, company: str) -> dict:
+        """Invite a new team member by email."""
+        if not email:
+            raise ATSValidationError("email is required.", field="email")
+        if not role:
+            raise ATSValidationError("role is required.", field="role")
 
-        Parameters
-        ----------
-        email : str
-            The email address to invite.
-        role : str
-            The role to assign (e.g. ``Recruiter``, ``Hiring Manager``).
+        existing = frappe.db.exists(DOCTYPE_EMPLOYER_USER, {"email": email, "company": company})
+        if existing:
+            raise ATSValidationError(f"Employer user with email '{email}' already exists in this company.")
 
-        Returns
-        -------
-        dict
-            Confirmation with the pending Employer User record name.
+        doc = frappe.new_doc(DOCTYPE_EMPLOYER_USER)
+        doc.email = email
+        doc.user = email
+        doc.role = role
+        doc.company = company
+        doc.status = "Active"
+        doc.insert(ignore_permissions=True)
 
-        Raises
-        ------
-        ATSValidationError
-            If the email is already registered as an Employer User.
+        self._notify(
+            title="Employer Invited",
+            message=f"New team member {email} invited as '{role}'.",
+            priority="High",
+            category="System",
+            company=company,
+            recipient=email,
+            entity_id=doc.name,
+        )
 
-        TODO: Generate a secure invitation token (frappe.utils.generate_hash())
-        TODO: Create a pending Employer User record with is_active=0
-        TODO: Send invitation email with registration link containing token
-        TODO: Log invitation to Activity Log
-        """
-        pass
+        return doc.as_dict()
 
-    def deactivate_employer_user(self, employer_user_id: str) -> None:
-        """Deactivate an Employer User, revoking system access.
+    def deactivate_employer_user(self, employer_user_id: str) -> dict:
+        """Deactivate an Employer User, revoking system access."""
+        doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
+        doc.status = "Inactive"
+        doc.save(ignore_permissions=True)
 
-        Parameters
-        ----------
-        employer_user_id : str
-            The name of the Employer User to deactivate.
+        company = getattr(doc, "company", None)
+        recipient = getattr(doc, "user", doc.email)
+        self._notify(
+            title="Employer Deactivated",
+            message=f"Employer user account {doc.name} ({doc.email}) was deactivated.",
+            priority="High",
+            category="System",
+            company=company,
+            recipient=recipient,
+            entity_id=doc.name,
+        )
 
-        Raises
-        ------
-        ATSPermissionError
-            If the requesting user is not an admin.
-        ATSValidationError
-            If attempting to deactivate the last admin user of the company.
-
-        TODO: Set employer_user.is_active = 0 and doc.save()
-        TODO: Revoke all active Frappe sessions for the underlying User
-        TODO: Log deactivation to Activity Log
-        """
-        pass
+        return doc.as_dict()
 
     def update_employer_role(self, employer_user_id: str, role: str) -> dict:
-        """Change the role of an Employer User within the company.
+        """Change the role of an Employer User within the company."""
+        if not role:
+            raise ATSValidationError("role is required.", field="role")
 
-        Parameters
-        ----------
-        employer_user_id : str
-            The name of the Employer User whose role is being changed.
-        role : str
-            The new role to assign.
+        doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
+        old_role = doc.role
+        doc.role = role
+        doc.save(ignore_permissions=True)
 
-        Returns
-        -------
-        dict
-            The updated Employer User document.
+        company = getattr(doc, "company", None)
+        recipient = getattr(doc, "user", doc.email)
+        self._notify(
+            title="Employer Role Changed",
+            message=f"Role for {doc.email} changed from '{old_role}' to '{role}'.",
+            priority="Medium",
+            category="System",
+            company=company,
+            recipient=recipient,
+            entity_id=doc.name,
+        )
 
-        Raises
-        ------
-        ATSPermissionError
-            If the requesting user is not an admin.
-        ATSValidationError
-            If the requested role is not in the allowed role set.
-
-        TODO: Validate role against EMPLOYER_ROLES constant
-        TODO: Update Employer User role field and save
-        TODO: Sync Frappe Role Profiles if applicable
-        TODO: Log role change to Activity Log
-        """
-        pass
+        return doc.as_dict()

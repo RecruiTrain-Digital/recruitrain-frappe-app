@@ -1,0 +1,399 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:company",
+ "creation": "2026-08-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company_section",
+  "company",
+  "general_section",
+  "timezone",
+  "language",
+  "date_format",
+  "currency",
+  "theme",
+  "security_section",
+  "password_min_length",
+  "password_require_uppercase",
+  "password_require_number",
+  "password_require_special",
+  "session_timeout_minutes",
+  "enable_two_factor_auth",
+  "enable_login_alerts",
+  "allowed_domains",
+  "recruitment_section",
+  "default_hiring_pipeline",
+  "default_interview_duration",
+  "auto_archive_candidates",
+  "enable_resume_parsing",
+  "default_candidate_source",
+  "international_section",
+  "default_visa_reminder_days",
+  "passport_reminder_days",
+  "enable_work_permit_reminder",
+  "documents_section",
+  "default_document_types",
+  "document_expiry_reminder_days",
+  "storage_policy",
+  "integrations_section",
+  "smtp_host",
+  "smtp_port",
+  "smtp_username",
+  "smtp_password",
+  "smtp_use_tls",
+  "google_calendar_enabled",
+  "google_calendar_client_id",
+  "google_calendar_client_secret",
+  "microsoft_calendar_enabled",
+  "microsoft_tenant_id",
+  "microsoft_client_id",
+  "microsoft_client_secret",
+  "zoom_enabled",
+  "zoom_api_key",
+  "zoom_api_secret",
+  "teams_enabled",
+  "teams_webhook_url",
+  "webhook_urls",
+  "api_keys",
+  "audit_section",
+  "audit_log_enabled",
+  "audit_retention_days"
+ ],
+ "fields": [
+  {
+   "fieldname": "company_section",
+   "fieldtype": "Section Break",
+   "label": "Company"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "general_section",
+   "fieldtype": "Section Break",
+   "label": "General"
+  },
+  {
+   "fieldname": "timezone",
+   "fieldtype": "Select",
+   "label": "Timezone",
+   "options": "UTC\nAfrica/Nairobi\nAmerica/Chicago\nAmerica/Denver\nAmerica/Los_Angeles\nAmerica/New_York\nAmerica/Sao_Paulo\nAmerica/Toronto\nAsia/Bangkok\nAsia/Colombo\nAsia/Dubai\nAsia/Jakarta\nAsia/Karachi\nAsia/Kolkata\nAsia/Kuala_Lumpur\nAsia/Manila\nAsia/Seoul\nAsia/Shanghai\nAsia/Singapore\nAsia/Taipei\nAsia/Tokyo\nAustralia/Melbourne\nAustralia/Sydney\nEurope/Amsterdam\nEurope/Berlin\nEurope/Brussels\nEurope/Bucharest\nEurope/Helsinki\nEurope/Istanbul\nEurope/Kiev\nEurope/Lisbon\nEurope/London\nEurope/Madrid\nEurope/Moscow\nEurope/Paris\nEurope/Prague\nEurope/Rome\nEurope/Stockholm\nEurope/Warsaw\nEurope/Zurich\nPacific/Auckland\nPacific/Honolulu"
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "label": "Language",
+   "options": "en\nde\nfr\nes\nit\npt\nnl\npl\ncs\nro\nhu\nbg\nhr\nsk\nsl\nar\nzh\nja\nko\nhi\nid\ntr\nru\nuk\nvi"
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "Date Format",
+   "options": "DD-MM-YYYY\nMM-DD-YYYY\nYYYY-MM-DD\nDD/MM/YYYY\nMM/DD/YYYY\nDD.MM.YYYY"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Select",
+   "label": "Currency",
+   "options": "EUR\nUSD\nGBP\nCHF\nSEK\nNOK\nDKK\nPLN\nCZK\nRON\nHUF\nBGN\nHRK\nINR\nAED\nSGD\nMYR\nTHB\nPHP\nIDR\nBRL\nCAD\nAUD\nNZD\nJPY\nCNY\nKRW\nTRY\nRUB\nZAR"
+  },
+  {
+   "fieldname": "theme",
+   "fieldtype": "Select",
+   "label": "Theme",
+   "options": "light\ndark\nsystem"
+  },
+  {
+   "fieldname": "security_section",
+   "fieldtype": "Section Break",
+   "label": "Security"
+  },
+  {
+   "default": "8",
+   "fieldname": "password_min_length",
+   "fieldtype": "Int",
+   "label": "Minimum Password Length"
+  },
+  {
+   "default": "1",
+   "fieldname": "password_require_uppercase",
+   "fieldtype": "Check",
+   "label": "Require Uppercase"
+  },
+  {
+   "default": "1",
+   "fieldname": "password_require_number",
+   "fieldtype": "Check",
+   "label": "Require Number"
+  },
+  {
+   "default": "0",
+   "fieldname": "password_require_special",
+   "fieldtype": "Check",
+   "label": "Require Special Character"
+  },
+  {
+   "default": "480",
+   "fieldname": "session_timeout_minutes",
+   "fieldtype": "Int",
+   "label": "Session Timeout (minutes)"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_two_factor_auth",
+   "fieldtype": "Check",
+   "label": "Enable Two-Factor Authentication"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_login_alerts",
+   "fieldtype": "Check",
+   "label": "Enable Login Alerts"
+  },
+  {
+   "fieldname": "allowed_domains",
+   "fieldtype": "Small Text",
+   "label": "Allowed Domains (comma-separated)"
+  },
+  {
+   "fieldname": "recruitment_section",
+   "fieldtype": "Section Break",
+   "label": "Recruitment"
+  },
+  {
+   "fieldname": "default_hiring_pipeline",
+   "fieldtype": "Select",
+   "label": "Default Hiring Pipeline",
+   "options": "Standard\nFast Track\nExecutive\nTechnical"
+  },
+  {
+   "default": "60",
+   "fieldname": "default_interview_duration",
+   "fieldtype": "Int",
+   "label": "Default Interview Duration (minutes)"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_archive_candidates",
+   "fieldtype": "Check",
+   "label": "Auto Archive Inactive Candidates"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_resume_parsing",
+   "fieldtype": "Check",
+   "label": "Enable Resume Parsing"
+  },
+  {
+   "fieldname": "default_candidate_source",
+   "fieldtype": "Select",
+   "label": "Default Candidate Source",
+   "options": "Direct Application\nJob Board\nReferral\nRecruitment Agency\nLinkedIn\nIndeed\nGlassdoor\nInternal Transfer\nCampus Recruitment\nOther"
+  },
+  {
+   "fieldname": "international_section",
+   "fieldtype": "Section Break",
+   "label": "International"
+  },
+  {
+   "default": "30",
+   "fieldname": "default_visa_reminder_days",
+   "fieldtype": "Int",
+   "label": "Default Visa Reminder Days"
+  },
+  {
+   "default": "60",
+   "fieldname": "passport_reminder_days",
+   "fieldtype": "Int",
+   "label": "Passport Reminder Days"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_work_permit_reminder",
+   "fieldtype": "Check",
+   "label": "Enable Work Permit Reminder"
+  },
+  {
+   "fieldname": "documents_section",
+   "fieldtype": "Section Break",
+   "label": "Documents"
+  },
+  {
+   "fieldname": "default_document_types",
+   "fieldtype": "Small Text",
+   "label": "Default Document Types (JSON array)"
+  },
+  {
+   "default": "30",
+   "fieldname": "document_expiry_reminder_days",
+   "fieldtype": "Int",
+   "label": "Document Expiry Reminder Days"
+  },
+  {
+   "fieldname": "storage_policy",
+   "fieldtype": "Select",
+   "label": "Storage Policy",
+   "options": "Frappe Storage\nS3\nGoogle Cloud Storage\nAzure Blob"
+  },
+  {
+   "fieldname": "integrations_section",
+   "fieldtype": "Section Break",
+   "label": "Integrations"
+  },
+  {
+   "fieldname": "smtp_host",
+   "fieldtype": "Data",
+   "label": "SMTP Host"
+  },
+  {
+   "default": "587",
+   "fieldname": "smtp_port",
+   "fieldtype": "Int",
+   "label": "SMTP Port"
+  },
+  {
+   "fieldname": "smtp_username",
+   "fieldtype": "Data",
+   "label": "SMTP Username"
+  },
+  {
+   "fieldname": "smtp_password",
+   "fieldtype": "Password",
+   "label": "SMTP Password"
+  },
+  {
+   "default": "1",
+   "fieldname": "smtp_use_tls",
+   "fieldtype": "Check",
+   "label": "SMTP Use TLS"
+  },
+  {
+   "default": "0",
+   "fieldname": "google_calendar_enabled",
+   "fieldtype": "Check",
+   "label": "Google Calendar Enabled"
+  },
+  {
+   "fieldname": "google_calendar_client_id",
+   "fieldtype": "Data",
+   "label": "Google Calendar Client ID"
+  },
+  {
+   "fieldname": "google_calendar_client_secret",
+   "fieldtype": "Password",
+   "label": "Google Calendar Client Secret"
+  },
+  {
+   "default": "0",
+   "fieldname": "microsoft_calendar_enabled",
+   "fieldtype": "Check",
+   "label": "Microsoft Calendar Enabled"
+  },
+  {
+   "fieldname": "microsoft_tenant_id",
+   "fieldtype": "Data",
+   "label": "Microsoft Tenant ID"
+  },
+  {
+   "fieldname": "microsoft_client_id",
+   "fieldtype": "Data",
+   "label": "Microsoft Client ID"
+  },
+  {
+   "fieldname": "microsoft_client_secret",
+   "fieldtype": "Password",
+   "label": "Microsoft Client Secret"
+  },
+  {
+   "default": "0",
+   "fieldname": "zoom_enabled",
+   "fieldtype": "Check",
+   "label": "Zoom Enabled"
+  },
+  {
+   "fieldname": "zoom_api_key",
+   "fieldtype": "Data",
+   "label": "Zoom API Key"
+  },
+  {
+   "fieldname": "zoom_api_secret",
+   "fieldtype": "Password",
+   "label": "Zoom API Secret"
+  },
+  {
+   "default": "0",
+   "fieldname": "teams_enabled",
+   "fieldtype": "Check",
+   "label": "Microsoft Teams Enabled"
+  },
+  {
+   "fieldname": "teams_webhook_url",
+   "fieldtype": "Data",
+   "label": "Teams Webhook URL"
+  },
+  {
+   "fieldname": "webhook_urls",
+   "fieldtype": "Small Text",
+   "label": "Webhook URLs (JSON array)"
+  },
+  {
+   "fieldname": "api_keys",
+   "fieldtype": "Small Text",
+   "label": "API Keys (JSON object)"
+  },
+  {
+   "fieldname": "audit_section",
+   "fieldtype": "Section Break",
+   "label": "Audit"
+  },
+  {
+   "default": "1",
+   "fieldname": "audit_log_enabled",
+   "fieldtype": "Check",
+   "label": "Audit Log Enabled"
+  },
+  {
+   "default": "90",
+   "fieldname": "audit_retention_days",
+   "fieldtype": "Int",
+   "label": "Audit Retention Days"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Employer Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "System Manager",
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "company",
+ "track_changes": 1
+}

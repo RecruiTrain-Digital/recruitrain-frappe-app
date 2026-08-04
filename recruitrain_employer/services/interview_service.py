@@ -147,7 +147,19 @@ class InterviewService:
                 details={"interview_name": interview_data.get("interview_name")},
             ) from exc
 
+        self._notify(
+            title="Interview Scheduled",
+            message=f"Interview {doc.name} scheduled for candidate {doc.candidate}.",
+            priority="High",
+            category="Interview",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/interviews/{doc.name}",
+            action_label="View Interview",
+        )
+
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
+
 
     def schedule_interview(self, data: dict) -> dict:
         """Alias for create_interview."""
@@ -316,7 +328,48 @@ class InterviewService:
         )
 
         doc.reload()
+
+        self._notify(
+            title="Interview Status Updated",
+            message=f"Interview {doc.name} status updated to '{new_status}'.",
+            priority="Medium",
+            category="Interview",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/interviews/{doc.name}",
+            action_label="View Interview",
+        )
+
         return self._serialize_interview(doc, fields=_DETAIL_FIELDS)
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Interview",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Interview notification error: {exc}")
+
 
     # ------------------------------------------------------------------
     # Private Helpers

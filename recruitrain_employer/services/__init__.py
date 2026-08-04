@@ -23,6 +23,8 @@ Package Layout
 - offer_service.py         Offer generation, sending, and response tracking
 - dashboard_service.py     Aggregated metrics and reporting queries
 - notification_service.py  Notification delivery and preference management
+- settings_service.py      Employer Settings orchestrator (general, branding,
+                           notification, security, recruitment, integration, audit)
 
 Design Principles
 -----------------

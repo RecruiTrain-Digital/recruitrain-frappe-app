@@ -29,12 +29,10 @@ from typing import Any, Callable
 
 import frappe
 
-from recruitrain_employer.utils.constants import DOCTYPE_EMPLOYER_USER
-from recruitrain_employer.utils.exceptions import ATSPermissionError
+from recruitrain_employer.utils.constants import DOCTYPE_COMPANY, DOCTYPE_EMPLOYER_USER
+from recruitrain_employer.utils.exceptions import ATSCompanyNotFoundError, ATSPermissionError
 
-# Role hierarchy maps Employer User DocType ``role`` field options to privilege
-# levels. Values must match the Select options in ``employer_user.json`` exactly.
-# Higher number = higher privilege.
+# Role hierarchy maps Employer User DocType ``role`` field options to privilege levels.
 ROLE_HIERARCHY: dict[str, int] = {
     "Administrator": 100,
     "HR Manager": 80,
@@ -52,7 +50,7 @@ def get_current_employer_user() -> dict:
     if user == "Guest":
         raise ATSPermissionError("Authentication required. Please log in.")
 
-    # Check for an active Employer User record for this user first
+    # Check for an active Employer User record for this user
     records = frappe.get_all(
         DOCTYPE_EMPLOYER_USER,
         filters={"user": user, "status": "Active"},
@@ -61,33 +59,77 @@ def get_current_employer_user() -> dict:
     )
 
     if records:
-        return records[0]
+        rec = records[0]
+        if not rec.get("company"):
+            raise ATSCompanyNotFoundError(
+                f"No company associated with active employer user '{user}'.",
+                details={"user": user},
+            )
+        return rec
 
-    # Administrator session fallback — use "Default Company" if it exists, else query existing Company
+    # Administrator session fallback — query existing active Company record from DB
     if user == "Administrator":
-        company = "Default Company"
-        if not frappe.db.exists("Company", company):
-            company = frappe.db.get_value("Company", {}, "name") or "RecruiTrain"
-
+        active_company = (
+            frappe.db.get_value(DOCTYPE_COMPANY, {"status": "Active"}, "name")
+            or frappe.db.get_value(DOCTYPE_COMPANY, {}, "name")
+        )
+        if not active_company:
+            raise ATSCompanyNotFoundError(
+                "No active Company record exists in database for Administrator.",
+                details={"user": user},
+            )
         return {
+            "name": "Administrator",
             "user": "Administrator",
-            "company": company,
+            "company": active_company,
             "role": "Administrator",
             "status": "Active",
         }
 
-    raise ATSPermissionError(
+    raise ATSCompanyNotFoundError(
         f"User '{user}' is not registered as an active Employer User.",
         details={"user": user},
     )
 
 
 def get_current_company() -> str:
-    """Return the company name associated with the currently authenticated employer user."""
+    """Return the validated active company name for the currently authenticated employer user.
+
+    Single Source of Truth for Company resolution across the entire backend.
+
+    Resolution Pipeline:
+    Current authenticated user -> Employer User.company -> Company DocType (validated existing & active)
+
+    Returns
+    -------
+    str
+        The canonical company name.
+
+    Raises
+    ------
+    ATSCompanyNotFoundError
+        If no company is associated with the user, or if the company does not exist or is inactive.
+    """
     user_info = get_current_employer_user()
     company = user_info.get("company")
     if not company:
-        raise ATSPermissionError("No company assigned to current employer user.")
+        raise ATSCompanyNotFoundError("No company associated with current authenticated employer user.")
+
+    # Validate company exists in Company DocType
+    if not frappe.db.exists(DOCTYPE_COMPANY, company):
+        raise ATSCompanyNotFoundError(
+            f"Company '{company}' associated with current user does not exist.",
+            details={"company": company},
+        )
+
+    # Validate company status is active
+    status = frappe.db.get_value(DOCTYPE_COMPANY, company, "status")
+    if status and status != "Active":
+        raise ATSCompanyNotFoundError(
+            f"Company '{company}' is inactive.",
+            details={"company": company, "status": status},
+        )
+
     return company
 
 

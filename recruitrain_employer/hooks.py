@@ -1,5 +1,5 @@
 app_name = "recruitrain_employer"
-app_title = "bench new-app recruitrain_employer"
+app_title = "RecruiTrain Employer"
 app_publisher = "RecruiTrain "
 app_description = "RecruiTrain Employer"
 app_email = "info@recruitrain.de"
@@ -149,23 +149,18 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"recruitrain_employer.tasks.all"
-# 	],
-# 	"daily": [
-# 		"recruitrain_employer.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"recruitrain_employer.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"recruitrain_employer.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"recruitrain_employer.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"all": [
+		"recruitrain_employer.tasks.send_short_term_reminders"
+	],
+	"daily": [
+		"recruitrain_employer.tasks.send_daily_reminders"
+	],
+	"hourly": [
+		"recruitrain_employer.tasks.send_hourly_reminders"
+	],
+}
+
 
 # Testing
 # -------

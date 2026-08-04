@@ -1,0 +1,192 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 0,
+ "autoname": "NOTIF-.#####",
+ "creation": "2026-08-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "notification_info_section",
+  "title",
+  "message",
+  "notification_type",
+  "priority",
+  "category",
+  "recipient_section",
+  "company",
+  "recipient",
+  "recipient_type",
+  "status_section",
+  "is_read",
+  "read_at",
+  "created_by",
+  "action_section",
+  "action_url",
+  "action_label",
+  "entity_type",
+  "entity_id",
+  "metadata_section",
+  "metadata"
+ ],
+ "fields": [
+  {
+   "fieldname": "notification_info_section",
+   "fieldtype": "Section Break",
+   "label": "Notification Info"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "label": "Message",
+   "reqd": 1
+  },
+  {
+   "default": "General",
+   "fieldname": "notification_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Notification Type",
+   "options": "System\nApplication\nInterview\nOffer\nCandidate\nJob\nGeneral",
+   "reqd": 1
+  },
+  {
+   "default": "Medium",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh\nUrgent",
+   "reqd": 1
+  },
+  {
+   "default": "General",
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category"
+  },
+  {
+   "fieldname": "recipient_section",
+   "fieldtype": "Section Break",
+   "label": "Recipient & Scope"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recipient",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Recipient",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "Employer User",
+   "fieldname": "recipient_type",
+   "fieldtype": "Select",
+   "label": "Recipient Type",
+   "options": "Employer User\nCandidate\nSystem User"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status & Audit"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_read",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Read"
+  },
+  {
+   "fieldname": "read_at",
+   "fieldtype": "Datetime",
+   "label": "Read At"
+  },
+  {
+   "fieldname": "created_by",
+   "fieldtype": "Data",
+   "label": "Created By"
+  },
+  {
+   "fieldname": "action_section",
+   "fieldtype": "Section Break",
+   "label": "Actions & Entity Reference"
+  },
+  {
+   "fieldname": "action_url",
+   "fieldtype": "Data",
+   "label": "Action URL"
+  },
+  {
+   "fieldname": "action_label",
+   "fieldtype": "Data",
+   "label": "Action Label"
+  },
+  {
+   "fieldname": "entity_type",
+   "fieldtype": "Data",
+   "label": "Entity Type"
+  },
+  {
+   "fieldname": "entity_id",
+   "fieldtype": "Data",
+   "label": "Entity ID"
+  },
+  {
+   "fieldname": "metadata_section",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Code",
+   "label": "Metadata (JSON)",
+   "options": "JSON"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Notification",
+ "naming_rule": "Autoincrement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -19,6 +19,8 @@
   "can_publish_jobs",
   "can_hire",
   "can_manage_recruiters",
+  "preferences_section",
+  "notification_preferences",
   "status_section",
   "status",
   "last_login"
@@ -100,6 +102,17 @@
    "label": "Can Manage Recruiters"
   },
   {
+   "fieldname": "preferences_section",
+   "fieldtype": "Section Break",
+   "label": "Preferences"
+  },
+  {
+   "fieldname": "notification_preferences",
+   "fieldtype": "Code",
+   "label": "Notification Preferences",
+   "options": "JSON"
+  },
+  {
    "fieldname": "status_section",
    "fieldtype": "Section Break",
    "label": "Status"
@@ -119,7 +132,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 18:51:58.892844",
+ "modified": "2026-08-05 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Recruitment",
  "name": "Employer User",

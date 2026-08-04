@@ -259,7 +259,19 @@ class JobApplicationService:
                 details={"candidate": data.get("candidate"), "job_opening": data.get("job_opening")},
             ) from exc
 
+        self._notify(
+            title="New Candidate Applied",
+            message=f"Candidate {doc.candidate} applied for job opening {doc.job_opening}.",
+            priority="High",
+            category="Application",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/applications/{doc.name}",
+            action_label="View Application",
+        )
+
         return self._serialize_application(doc, fields=_DETAIL_FIELDS)
+
 
     def get_application(self, application_id: str) -> dict:
         """Retrieve a full Job Application record by ID.
@@ -592,17 +604,61 @@ class JobApplicationService:
         # Confirm the application exists before updating.
         doc = self._get_or_raise(application_id)
 
+        db_status = new_status if new_status in ["Hired", "Rejected", "Closed", "Open"] else ("Closed" if new_status == "Withdrawn" else "Open")
         frappe.db.set_value(
             DOCTYPE_JOB_APPLICATION,
             application_id,
-            "status",
-            new_status,
+            {
+                "current_stage": new_status,
+                "status": db_status
+            },
             update_modified=True,
         )
 
-        # Reload the document to reflect the committed value.
+
         doc.reload()
+
+        self._notify(
+            title="Application Status Updated",
+            message=f"Application {doc.name} status updated to '{new_status}'.",
+            priority="Medium",
+            category="Application",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/applications/{doc.name}",
+            action_label="View Application",
+        )
+
         return self._serialize_application(doc, fields=_DETAIL_FIELDS)
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Job Application",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Application notification error: {exc}")
+
 
     # ------------------------------------------------------------------
     # Private Helpers
@@ -755,9 +811,21 @@ class JobApplicationService:
         }
 
         normalized_data = dict(data)
+        if "status" in normalized_data and meta.has_field("current_stage"):
+            st = normalized_data["status"]
+            if st in ["Applied", "Screening", "Shortlisted", "Interview Scheduled", "Interviewed", "Offer Extended", "Withdrawn", "Hired", "Rejected"]:
+                normalized_data["current_stage"] = st
+                if st in ["Hired", "Rejected"]:
+                    normalized_data["status"] = st
+                elif st in ["Withdrawn", "Closed"]:
+                    normalized_data["status"] = "Closed"
+                else:
+                    normalized_data["status"] = "Open"
+
         for alias, target in aliases.items():
             if alias in normalized_data and not meta.has_field(alias) and meta.has_field(target):
                 normalized_data[target] = normalized_data.pop(alias)
+
 
         for field, new_value in normalized_data.items():
             if not meta.has_field(field):

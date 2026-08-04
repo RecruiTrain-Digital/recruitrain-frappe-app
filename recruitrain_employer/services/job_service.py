@@ -91,7 +91,7 @@ from recruitrain_employer.utils.exceptions import (
     ATSNotFoundError,
     ATSValidationError,
 )
-from recruitrain_employer.validators.job_validator import JobValidator
+from recruitrain_employer.validators.job_validator import JobValidator, normalize_job_payload
 
 
 # ---------------------------------------------------------------------------
@@ -234,42 +234,86 @@ class JobService:
 
     def __init__(self) -> None:
         self._validator = JobValidator()
+        try:
+            from recruitrain_employer.services.master_seed_service import ensure_master_records_exist
+            ensure_master_records_exist()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # CRUD Methods
     # ------------------------------------------------------------------
 
+    def save_draft(self, data: dict, job_id: str | None = None) -> dict:
+        """Save a Job Opening draft (create new or update existing).
+
+        Draft saving does NOT require mandatory publish fields (job_title,
+        employment_type, job_summary). Incomplete payloads are accepted cleanly.
+        """
+        normalize_job_payload(data)
+        job_id = job_id or data.get("job_id") or data.get("name")
+        data_clean = {k: v for k, v in data.items() if k not in ("job_id", "name")}
+
+        self._validator.validate_draft(data_clean)
+
+        if job_id and frappe.db.exists(DOCTYPE_JOB_OPENING, job_id):
+            doc = frappe.get_doc(DOCTYPE_JOB_OPENING, job_id)
+            self._apply_changed_fields(doc, data_clean)
+            if not doc.status:
+                doc.status = "Draft"
+            doc.flags.ignore_mandatory = True
+            doc.save(ignore_permissions=True)
+        else:
+            if not data_clean.get("job_code"):
+                data_clean["job_code"] = self._generate_job_code()
+            else:
+                self._assert_job_code_unique(data_clean["job_code"])
+
+            from recruitrain_employer.utils.permissions import get_current_company
+            data_clean["company"] = get_current_company()
+
+            if not data_clean.get("job_title"):
+                data_clean["job_title"] = "Untitled Job"
+
+            if "status" not in data_clean:
+                data_clean["status"] = "Draft"
+
+            doc = frappe.new_doc(DOCTYPE_JOB_OPENING)
+            self._apply_changed_fields(doc, data_clean)
+            doc.flags.ignore_mandatory = True
+            try:
+                doc.insert(ignore_permissions=True)
+            except DuplicateEntryError as exc:
+                raise ATSConflictError(
+                    f"A Job Opening with job_code '{doc.job_code}' already exists.",
+                    details={"field": "job_code", "value": doc.job_code},
+                ) from exc
+
+        metrics = self._get_batch_ats_metrics([doc.name])
+        return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(doc.name))
+
     def create_job(self, data: dict) -> dict:
         """Create a new Job Opening record.
 
-        Parameters
-        ----------
-        data : dict
-            Job Opening field values.  Must include at a minimum the fields
-            listed in ``JOB_REQUIRED_FIELDS`` (``job_title``, ``company``,
-            ``employment_type``, ``description``).
-
-        Returns
-        -------
-        dict
-            The newly created Job Opening document serialised by
-            ``_serialize_job()``.
-
-        Raises
-        ------
-        ATSValidationError
-            If required fields are missing or any value is invalid.
-        ATSConflictError
-            If a Job Opening with the same ``job_code`` already exists
-            (when ``job_code`` is provided).
-
-        TODO: Log job creation to Activity Log via ActivityLogService.
-        TODO: Notify relevant users via NotificationService.
+        If status is 'Draft' (or unspecified), delegates to ``save_draft``.
+        If status is 'Open' or published is set, enforces strict publish validation.
         """
-        self._validator.validate_create(data)
+        normalize_job_payload(data)
+        status = data.get("status", "Draft")
+        is_published = bool(data.get("published"))
+
+        from recruitrain_employer.utils.permissions import get_current_company
+        data["company"] = get_current_company()
+
+        if status != "Open" and not is_published:
+            return self.save_draft(data)
+
+        self._validator.validate_publish(data)
 
         if data.get("job_code"):
             self._assert_job_code_unique(data["job_code"])
+        else:
+            data["job_code"] = self._generate_job_code()
 
         doc = frappe.new_doc(DOCTYPE_JOB_OPENING)
         self._apply_changed_fields(doc, data)
@@ -281,7 +325,19 @@ class JobService:
                 details={"field": "job_code", "value": data.get("job_code")},
             ) from exc
 
+        self._notify(
+            title="Job Opening Created",
+            message=f"Job opening '{doc.job_title}' ({doc.name}) was created successfully.",
+            priority="Medium",
+            category="Job",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/jobs/{doc.name}",
+            action_label="View Job",
+        )
+
         return self._serialize_job(doc, fields=_DETAIL_FIELDS)
+
 
     def get_job(self, job_id: str) -> dict:
         """Retrieve a full Job Opening record by ID.
@@ -319,44 +375,23 @@ class JobService:
         """Apply a partial update to an existing Job Opening record.
 
         Only fields whose values have **changed** from the current document
-        are written.  Identical values are skipped, preventing unnecessary
+        are written. Identical values are skipped, preventing unnecessary
         dirty-field tracking.
-
-        Parameters
-        ----------
-        job_id : str
-            The ``name`` of the Job Opening to update.
-        data : dict
-            Partial Job Opening fields to apply.  Only fields present in
-            ``JOB_UPDATABLE_FIELDS`` are accepted.
-
-        Returns
-        -------
-        dict
-            The updated Job Opening document serialised by ``_serialize_job()``.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``job_id`` is empty, ``data`` is empty, or any field
-            is not updatable.
-        ATSNotFoundError
-            If no Job Opening with the given ID exists.
-
-        TODO: Pass ``changed_fields`` to ActivityLogService once implemented.
         """
         if not job_id:
             raise ATSValidationError("job_id is required.", field="job_id")
 
+        normalize_job_payload(data)
         self._validator.validate_update(data)
 
         doc = self._get_or_raise(job_id)
 
-        # Apply only changed fields; the returned dict is ready for the
-        # Activity Log in a future sprint.
+        # Apply only changed fields
         changed_fields = self._apply_changed_fields(doc, data)
 
         if changed_fields:
+            if doc.status == "Draft":
+                doc.flags.ignore_mandatory = True
             try:
                 doc.save(ignore_permissions=True)
             except DuplicateEntryError as exc:
@@ -364,7 +399,6 @@ class JobService:
                     f"Job Opening conflict during update.",
                     details={"job_id": job_id},
                 ) from exc
-            # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
         metrics = self._get_batch_ats_metrics([job_id])
         return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
@@ -624,14 +658,69 @@ class JobService:
                 details={"field": "job_code", "value": job_code},
             )
 
-    def publish_job(self, job_id: str) -> dict:
-        """Publish a Job Opening, setting published=1 and status='Open'."""
+    @staticmethod
+    def _generate_job_code() -> str:
+        """Generate a unique job_code for draft/job creation if missing."""
+        try:
+            from frappe.model.naming import make_autoname
+            return make_autoname("JOB-.#####")
+        except Exception:
+            import uuid
+            return f"JOB-{uuid.uuid4().hex[:8].upper()}"
+
+    @staticmethod
+    def _get_default_company() -> str:
+        """Resolve the company name from the current authenticated employer user."""
+        from recruitrain_employer.utils.permissions import get_current_company
+        return get_current_company()
+
+    def publish_job(self, job_id: str, data: dict | None = None) -> dict:
+        """Publish a Job Opening, enforcing strict publish validation."""
         if not job_id:
             raise ATSValidationError("job_id is required.", field="job_id")
         doc = self._get_or_raise(job_id)
+
+        if data:
+            normalize_job_payload(data)
+            self._apply_changed_fields(doc, data)
+
+        from recruitrain_employer.utils.permissions import get_current_company
+        current_company = get_current_company()
+        doc.company = current_company
+
+        combined_payload = {
+            "job_title": doc.job_title,
+            "company": current_company,
+            "employment_type": doc.employment_type,
+            "job_summary": doc.job_summary,
+            "responsibilities": getattr(doc, "responsibilities", None),
+            "requirements": getattr(doc, "requirements", None),
+            "status": "Open",
+            "published": 1,
+            "salary_min": getattr(doc, "minimum_salary", None),
+            "salary_max": getattr(doc, "maximum_salary", None),
+            "opening_date": getattr(doc, "opening_date", None),
+            "closing_date": getattr(doc, "closing_date", None),
+            "department": getattr(doc, "department", None),
+        }
+        self._validator.validate_publish(combined_payload)
+
+        if combined_payload.get("employment_type"):
+            doc.employment_type = combined_payload["employment_type"]
+
         doc.published = 1
         doc.status = "Open"
         doc.save(ignore_permissions=True)
+        self._notify(
+            title="Job Opening Published",
+            message=f"Job opening '{doc.job_title}' is now live and published.",
+            priority="High",
+            category="Job",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/jobs/{doc.name}",
+            action_label="View Job",
+        )
         metrics = self._get_batch_ats_metrics([job_id])
         return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
 
@@ -642,8 +731,47 @@ class JobService:
         doc = self._get_or_raise(job_id)
         doc.status = "Closed"
         doc.save(ignore_permissions=True)
+        self._notify(
+            title="Job Opening Closed",
+            message=f"Job opening '{doc.job_title}' has been closed.",
+            priority="Medium",
+            category="Job",
+            company=doc.company,
+            entity_id=doc.name,
+            action_url=f"/jobs/{doc.name}",
+            action_label="View Job",
+        )
         metrics = self._get_batch_ats_metrics([job_id])
         return self._serialize_job(doc, fields=_DETAIL_FIELDS, metrics=metrics.get(job_id))
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Job Opening",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Job notification error: {exc}")
+
 
     @staticmethod
     def _get_batch_ats_metrics(job_ids: list[str]) -> dict[str, dict[str, int]]:
@@ -784,18 +912,8 @@ class JobService:
         changed: dict = {}
         meta = frappe.get_meta(doc.doctype)
 
-        # Field aliases mapping API payload fields to DocType schema fields
-        aliases = {
-            "description": "job_summary",
-            "salary_min": "minimum_salary",
-            "salary_max": "maximum_salary",
-            "number_of_positions": "number_of_openings",
-        }
-
         normalized_data = dict(data)
-        for alias, target in aliases.items():
-            if alias in normalized_data and not meta.has_field(alias) and meta.has_field(target):
-                normalized_data[target] = normalized_data.pop(alias)
+        normalize_job_payload(normalized_data)
 
         for field, new_value in normalized_data.items():
             if not meta.has_field(field):

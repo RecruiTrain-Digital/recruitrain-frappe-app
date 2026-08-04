@@ -46,6 +46,7 @@ import frappe
 from recruitrain_employer.services.candidate_service import CandidateService
 from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.permissions import employer_required
 from recruitrain_employer.utils.response import (
     error_response,
     paginated_response,
@@ -59,23 +60,28 @@ from recruitrain_employer.utils.response import (
 
 
 def _handle_ats_exception(exc: ATSException) -> dict:
-    """Translate an ``ATSException`` into a standardised error response dict.
-
-    Parameters
-    ----------
-    exc : ATSException
-        Any exception from the ATS exception hierarchy.
-
-    Returns
-    -------
-    dict
-        A standardised ``error_response`` dict.
-    """
+    """Translate an ``ATSException`` into a standardised error response dict."""
     return error_response(
         code=exc.code,
         message=exc.message,
         details=exc.details,
     )
+
+
+def _get_payload() -> dict:
+    """Safely extract payload from request JSON, form_dict, or fallback."""
+    req_data = None
+    if getattr(frappe, "request", None):
+        try:
+            req_data = frappe.request.get_json()
+        except Exception:
+            pass
+    if req_data and isinstance(req_data, dict):
+        return dict(req_data)
+    form = getattr(frappe, "form_dict", None)
+    if form and isinstance(form, dict):
+        return dict(form)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -335,99 +341,292 @@ def search_candidates() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sub-Resource Endpoints (Future Sprints — stubs only)
+# Sub-Resource & International Candidate Endpoints
 # ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
+@employer_required
 def get_education(candidate_id: str) -> dict:
-    """List all Candidate Education records for a Candidate.
-
-    TODO: Implement in the Candidate Sub-Resources sprint.
-    TODO: Delegate to CandidateService.get_education().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Education retrieval is not yet available.",
-    )
+    """List all Candidate Education records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_education(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
+@employer_required
+def update_education(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Education table for a Candidate."""
+    try:
+        payload = _get_payload()
+        education = payload.get("education") or payload.get("data") or kwargs.get("education") or []
+        if isinstance(education, str):
+            education = frappe.parse_json(education)
+        service = CandidateService()
+        result = service.update_education(candidate_id=candidate_id, education=education)
+        return success_response(data=result, message="Education records updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_experience(candidate_id: str) -> dict:
-    """List all Candidate Experience records for a Candidate.
-
-    TODO: Implement in the Candidate Sub-Resources sprint.
-    TODO: Delegate to CandidateService.get_experience().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Experience retrieval is not yet available.",
-    )
+    """List all Candidate Experience records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_experience(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
+@employer_required
+def update_experience(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Experience table for a Candidate."""
+    try:
+        payload = _get_payload()
+        experience = payload.get("experience") or payload.get("data") or kwargs.get("experience") or []
+        if isinstance(experience, str):
+            experience = frappe.parse_json(experience)
+        service = CandidateService()
+        result = service.update_experience(candidate_id=candidate_id, experience=experience)
+        return success_response(data=result, message="Experience records updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_skills(candidate_id: str) -> dict:
-    """List all Candidate Skill records for a Candidate.
-
-    TODO: Implement in the Candidate Sub-Resources sprint.
-    TODO: Delegate to CandidateService.get_skills().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Skills retrieval is not yet available.",
-    )
+    """List all Candidate Skill records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_skills(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
+@employer_required
+def update_skills(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Skill table for a Candidate."""
+    try:
+        payload = _get_payload()
+        skills = payload.get("skills") or payload.get("data") or kwargs.get("skills") or []
+        if isinstance(skills, str):
+            skills = frappe.parse_json(skills)
+        service = CandidateService()
+        result = service.update_skills(candidate_id=candidate_id, skills=skills)
+        return success_response(data=result, message="Skills updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_certifications(candidate_id: str) -> dict:
-    """List all Candidate Certification records for a Candidate.
-
-    TODO: Implement in the Candidate Sub-Resources sprint.
-    TODO: Delegate to CandidateService.get_certifications().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Certifications retrieval is not yet available.",
-    )
+    """List all Candidate Certification records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_certifications(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
+@employer_required
+def update_certifications(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Certification table for a Candidate."""
+    try:
+        payload = _get_payload()
+        certifications = payload.get("certifications") or payload.get("data") or kwargs.get("certifications") or []
+        if isinstance(certifications, str):
+            certifications = frappe.parse_json(certifications)
+        service = CandidateService()
+        result = service.update_certifications(candidate_id=candidate_id, certifications=certifications)
+        return success_response(data=result, message="Certifications updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_languages(candidate_id: str) -> dict:
-    """List all Candidate Language records for a Candidate.
-
-    TODO: Implement in the Candidate Sub-Resources sprint.
-    TODO: Delegate to CandidateService.get_languages().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Languages retrieval is not yet available.",
-    )
+    """List all Candidate Language records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_languages(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
+@employer_required
+def update_languages(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Language table for a Candidate."""
+    try:
+        payload = _get_payload()
+        languages = payload.get("languages") or payload.get("data") or kwargs.get("languages") or []
+        if isinstance(languages, str):
+            languages = frappe.parse_json(languages)
+        service = CandidateService()
+        result = service.update_languages(candidate_id=candidate_id, languages=languages)
+        return success_response(data=result, message="Languages updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_documents(candidate_id: str) -> dict:
-    """List all Candidate Document records for a Candidate.
-
-    TODO: Implement in the Document Upload sprint.
-    TODO: Delegate to CandidateService.get_documents().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Candidate Documents retrieval is not yet available.",
-    )
+    """List all Candidate Document records for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_documents(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 @frappe.whitelist()
-def get_profile_completeness(candidate_id: str) -> dict:
-    """Return a profile completeness score for a Candidate.
+@employer_required
+def update_documents(candidate_id: str, **kwargs) -> dict:
+    """Update Candidate Document table for a Candidate."""
+    try:
+        payload = _get_payload()
+        documents = payload.get("documents") or payload.get("data") or kwargs.get("documents") or []
+        if isinstance(documents, str):
+            documents = frappe.parse_json(documents)
+        service = CandidateService()
+        result = service.update_documents(candidate_id=candidate_id, documents=documents)
+        return success_response(data=result, message="Documents updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
-    TODO: Implement in the Profile Completeness sprint.
-    TODO: Delegate to CandidateService.get_profile_completeness().
-    """
-    return error_response(
-        code="NOT_IMPLEMENTED",
-        message="Profile completeness scoring is not yet available.",
-    )
+
+@frappe.whitelist()
+@employer_required
+def update_passport_and_visa(candidate_id: str, **kwargs) -> dict:
+    """Update passport and visa details for a Candidate."""
+    try:
+        payload = _get_payload()
+        if kwargs:
+            payload.update(kwargs)
+        service = CandidateService()
+        result = service.update_passport_and_visa(candidate_id=candidate_id, data=payload)
+        return success_response(data=result, message="Passport and visa details updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def list_international_candidates() -> dict:
+    """Return a paginated list of International Candidates."""
+    try:
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = CandidateService()
+        result = service.list_international_candidates(
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def list_domestic_candidates() -> dict:
+    """Return a paginated list of Domestic Candidates."""
+    try:
+        page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
+        page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
+        order_by = frappe.form_dict.get("order_by", "creation")
+        order_dir = frappe.form_dict.get("order_dir", "desc")
+
+        filters = _extract_list_filters(frappe.form_dict)
+
+        service = CandidateService()
+        result = service.list_domestic_candidates(
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
+
+        return paginated_response(
+            data=result["data"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total=result["total"],
+        )
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def get_domestic_candidate(candidate_id: str) -> dict:
+    """Retrieve details for a single Domestic Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_domestic_candidate(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def update_domestic_candidate(candidate_id: str, **kwargs) -> dict:
+    """Update profile details for a Domestic Candidate."""
+    try:
+        payload = _get_payload()
+        if kwargs:
+            payload.update(kwargs)
+        service = CandidateService()
+        result = service.update_domestic_candidate(candidate_id=candidate_id, data=payload)
+        return success_response(data=result, message="Domestic candidate profile updated successfully.")
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def get_profile_completeness(candidate_id: str) -> dict:
+    """Return profile completeness score for a Candidate."""
+    try:
+        service = CandidateService()
+        data = service.get_profile_completeness(candidate_id=candidate_id)
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
 
 
 # ---------------------------------------------------------------------------

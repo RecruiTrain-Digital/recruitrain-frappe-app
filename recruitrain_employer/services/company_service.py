@@ -609,7 +609,19 @@ class CompanyService:
                     details={"company_id": company_id},
                 ) from exc
 
+            self._notify(
+                title="Company Profile Updated",
+                message=f"Company profile for '{doc.company_name}' was updated.",
+                priority="Low",
+                category="System",
+                company=doc.name,
+                entity_id=doc.name,
+                action_url="/profile",
+                action_label="View Profile",
+            )
+
         return self._serialize_company_profile(doc)
+
 
     def upload_company_logo(self, company_id: str, file_content: bytes, file_name: str, content_type: str) -> dict:
         """Upload or replace the Company logo and persist the URL on the document.
@@ -685,34 +697,91 @@ class CompanyService:
         # 5. Update Company.logo with the new file URL.
         doc.db_set("logo", logo_url)
 
+        self._notify(
+            title="Company Logo Updated",
+            message=f"Logo for company '{doc.company_name}' was uploaded.",
+            priority="Low",
+            category="System",
+            company=doc.name,
+            entity_id=doc.name,
+            action_url="/profile",
+            action_label="View Profile",
+        )
+
         return {"logo_url": logo_url}
+
+    @staticmethod
+    def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
+        try:
+            from recruitrain_employer.services.notification_service import NotificationService
+            from recruitrain_employer.utils.permissions import get_current_company
+            recipient = getattr(frappe.session, "user", "") or "Administrator"
+            if recipient == "Guest":
+                recipient = "Administrator"
+            ns = NotificationService()
+            target_company = company or get_current_company()
+            ns.create_notification(
+                raw_data={
+                    "title": title,
+                    "message": message,
+                    "priority": priority,
+                    "category": category,
+                    "entity_type": "Company",
+                    "entity_id": entity_id,
+                    "action_url": action_url,
+                    "action_label": action_label,
+                },
+                company=target_company,
+                recipient=recipient,
+                created_by=getattr(frappe.session, "user", "System"),
+            )
+        except Exception as exc:
+            frappe.logger().error(f"Company notification error: {exc}")
+
 
     # ------------------------------------------------------------------
     # Sub-Resource Methods (Future Sprints)
     # ------------------------------------------------------------------
 
     def get_company_jobs(self, company_id: str) -> list:
-        """Return all active Job Openings belonging to the Company.
-
-        TODO: Implement in the Job Opening sprint.
-        TODO: frappe.get_all(DOCTYPE_JOB_OPENING, filters={"company": company_id})
-        """
-        pass
+        """Return all active Job Openings belonging to the Company."""
+        from recruitrain_employer.utils.constants import DOCTYPE_JOB_OPENING
+        if not company_id:
+            return []
+        return frappe.get_all(
+            DOCTYPE_JOB_OPENING,
+            filters={"company": company_id, "status": "Open"},
+            fields=["name", "job_title", "status", "employment_type"],
+            ignore_permissions=True,
+        )
 
     def get_company_stats(self, company_id: str) -> dict:
-        """Return high-level statistics for the Company.
-
-        Planned Stats
-        -------------
-        - open_jobs          : int
-        - total_applications : int
-        - interviews_this_week: int
-        - pending_offers     : int
-
-        TODO: Implement in the Dashboard/Analytics sprint.
-        TODO: Use frappe.db.count() scoped to company_id for each stat.
-        """
-        pass
+        """Return high-level statistics for the Company."""
+        from recruitrain_employer.utils.constants import (
+            DOCTYPE_JOB_OPENING,
+            DOCTYPE_JOB_APPLICATION,
+            DOCTYPE_INTERVIEW,
+            DOCTYPE_OFFER,
+        )
+        if not company_id:
+            return {}
+        open_jobs = frappe.db.count(
+            DOCTYPE_JOB_OPENING,
+            filters={"company": company_id, "status": "Open"},
+        )
+        total_apps = frappe.db.count(
+            DOCTYPE_JOB_APPLICATION,
+            filters={"company": company_id},
+        )
+        pending_offers = frappe.db.count(
+            DOCTYPE_OFFER,
+            filters={"company": company_id, "status": "Sent"},
+        )
+        return {
+            "open_jobs": open_jobs,
+            "total_applications": total_apps,
+            "pending_offers": pending_offers,
+        }
 
     # ------------------------------------------------------------------
     # Private Helpers

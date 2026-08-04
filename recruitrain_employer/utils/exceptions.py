@@ -151,6 +151,27 @@ class ATSNotFoundError(ATSException):
             self.details = {"doctype": doctype, "name": name}
 
 
+class ATSCompanyNotFoundError(ATSException):
+    """Raised when no active company is associated with the authenticated employer user.
+
+    Parameters
+    ----------
+    message : str
+        Human-readable description.
+    details : Any, optional
+        Additional context.
+    """
+
+    code = "COMPANY_NOT_FOUND"
+
+    def __init__(
+        self,
+        message: str = "No company associated with current authenticated employer user.",
+        details: Any = None,
+    ) -> None:
+        super().__init__(message, code="COMPANY_NOT_FOUND", details=details)
+
+
 # ---------------------------------------------------------------------------
 # Authentication Errors
 # ---------------------------------------------------------------------------

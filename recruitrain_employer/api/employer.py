@@ -6,166 +6,82 @@ recruitrain_employer.api.employer
 ===================================
 
 Employer User Management API Endpoints.
-
-Provides REST endpoints for managing Employer User DocType records, including
-team member invitation, role assignment, and profile updates.
-
-Business logic MUST NOT be implemented here — delegate to
-``recruitrain_employer.services.employer_service`` instead.
-
-Endpoint Path Prefix
----------------------
-/api/method/recruitrain_employer.api.employer.<function_name>
 """
 
+from __future__ import annotations
+
 import frappe
-
-from recruitrain_employer.services.employer_service import EmployerService  # noqa: F401
-from recruitrain_employer.utils.exceptions import ATSNotFoundError, ATSPermissionError
-from recruitrain_employer.utils.response import error_response, success_response
-
-
-# ---------------------------------------------------------------------------
-# Employer User CRUD
-# ---------------------------------------------------------------------------
+from recruitrain_employer.services.employer_service import EmployerService
+from recruitrain_employer.utils.decorators import employer_required
+from recruitrain_employer.utils.response import success_response
 
 
 @frappe.whitelist()
+@employer_required
 def get_employer_user(employer_user_id: str):
-    """Retrieve an Employer User record by ID.
-
-    Parameters
-    ----------
-    employer_user_id : str
-        The name (primary key) of the Employer User DocType record.
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the Employer User document.
-
-    Raises
-    ------
-    ATSNotFoundError
-        If no Employer User with the given ID exists.
-    ATSPermissionError
-        If the requesting user is not authorised to view this record.
-
-    TODO: Implement delegating to EmployerService.get_employer_user()
-    """
-    pass
+    """Retrieve an Employer User record by ID."""
+    svc = EmployerService()
+    user = svc.get_employer_user(employer_user_id)
+    return success_response(data=user, message="Employer user retrieved successfully.")
 
 
 @frappe.whitelist()
+@employer_required
 def update_employer_user(employer_user_id: str):
-    """Update mutable fields of an existing Employer User record.
-
-    Parameters
-    ----------
-    employer_user_id : str
-        The name of the Employer User to update.
-
-    Expected Request Body (JSON)
-    ----------------------------
-    Partial Employer User fields to update.
-
-    Returns
-    -------
-    dict
-        Standardised success response with the updated Employer User document.
-
-    TODO: Implement delegating to EmployerService.update_employer_user()
-    """
-    pass
+    """Update mutable fields of an existing Employer User record."""
+    data = frappe.request.get_json() if frappe.request and frappe.request.get_json() else frappe.form_dict
+    svc = EmployerService()
+    user = svc.update_employer_user(employer_user_id, data)
+    return success_response(data=user, message="Employer user updated successfully.")
 
 
 @frappe.whitelist()
+@employer_required
 def list_employer_users():
-    """Return a paginated list of Employer Users for the current company.
-
-    Expected Query Parameters
-    --------------------------
-    page      : int  (default 1)
-    page_size : int  (default 20, max 100)
-    role      : str  (optional — one of: Administrator, HR Manager, Recruiter,
-                      Hiring Manager, Interviewer, Viewer)
-    status    : str  (optional — one of: Active, Inactive, Blocked)
-                NOTE: The Employer User schema field is ``status``, not ``is_active``.
-
-    Returns
-    -------
-    dict
-        Standardised success response with ``data`` list and pagination meta.
-
-    TODO: Implement delegating to EmployerService.list_employer_users()
-    TODO: Scope to requesting user's company
-    """
-    pass
-
-
-
-# ---------------------------------------------------------------------------
-# Team Management
-# ---------------------------------------------------------------------------
+    """Return a paginated list of Employer Users for the current company."""
+    params = frappe.request.get_json() if frappe.request and frappe.request.get_json() else frappe.form_dict
+    svc = EmployerService()
+    result = svc.list_employer_users(filters=params, pagination=params)
+    return success_response(
+        data=result.get("data", []),
+        meta={
+            "total": result.get("total", 0),
+            "page": result.get("page", 1),
+            "page_size": result.get("page_size", 20),
+        },
+        message="Employer users listed successfully.",
+    )
 
 
 @frappe.whitelist()
+@employer_required
 def invite_team_member():
-    """Invite a new team member by sending an invitation email.
+    """Invite a new team member by sending an invitation email."""
+    data = frappe.request.get_json() if frappe.request and frappe.request.get_json() else frappe.form_dict
+    email = data.get("email")
+    role = data.get("role")
+    company = getattr(frappe.flags, "employer_company", "RecruiTrain")
 
-    Expected Request Body (JSON)
-    ----------------------------
-    {
-        "email": "colleague@company.com",
-        "role": "Recruiter"
-    }
-
-    Returns
-    -------
-    dict
-        Standardised success response confirming the invitation was sent.
-
-    TODO: Implement delegating to EmployerService.invite_team_member()
-    TODO: Send invitation email with secure registration link
-    TODO: Create a pending Employer User record
-    """
-    pass
+    svc = EmployerService()
+    result = svc.invite_team_member(email=email, role=role, company=company)
+    return success_response(data=result, message="Team member invited successfully.")
 
 
 @frappe.whitelist()
+@employer_required
 def deactivate_employer_user(employer_user_id: str):
-    """Deactivate an Employer User, revoking system access.
-
-    Parameters
-    ----------
-    employer_user_id : str
-        The name of the Employer User to deactivate.
-
-    Returns
-    -------
-    dict
-        Standardised success response.
-
-    TODO: Implement delegating to EmployerService.deactivate_employer_user()
-    TODO: Revoke all active sessions for the user
-    """
-    pass
+    """Deactivate an Employer User, revoking system access."""
+    svc = EmployerService()
+    result = svc.deactivate_employer_user(employer_user_id)
+    return success_response(data=result, message="Employer user deactivated successfully.")
 
 
 @frappe.whitelist()
+@employer_required
 def update_employer_role(employer_user_id: str):
-    """Change the role of an Employer User within the company.
-
-    Expected Request Body (JSON)
-    ----------------------------
-    { "role": "Hiring Manager" }
-
-    Returns
-    -------
-    dict
-        Standardised success response.
-
-    TODO: Implement delegating to EmployerService.update_employer_role()
-    TODO: Only allow admins to perform role changes
-    """
-    pass
+    """Change the role of an Employer User within the company."""
+    data = frappe.request.get_json() if frappe.request and frappe.request.get_json() else frappe.form_dict
+    role = data.get("role")
+    svc = EmployerService()
+    result = svc.update_employer_role(employer_user_id, role)
+    return success_response(data=result, message="Employer role updated successfully.")
