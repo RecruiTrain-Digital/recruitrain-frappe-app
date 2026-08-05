@@ -46,7 +46,7 @@
   },
   {
    "fieldname": "end_date",
-   "fieldtype": "Data",
+   "fieldtype": "Date",
    "label": "End Date"
   },
   {

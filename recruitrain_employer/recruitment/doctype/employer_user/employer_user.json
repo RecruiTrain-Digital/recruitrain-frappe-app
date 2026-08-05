@@ -10,9 +10,18 @@
   "basic_information_section",
   "user",
   "company",
+  "first_name",
+  "last_name",
+  "full_name",
+  "phone",
+  "bio",
   "employee_id",
   "department",
   "designation",
+  "location_section",
+  "country",
+  "state",
+  "city",
   "permissions_section",
   "role",
   "is_primary_recruiter",
@@ -20,6 +29,9 @@
   "can_hire",
   "can_manage_recruiters",
   "preferences_section",
+  "avatar",
+  "timezone",
+  "language",
   "notification_preferences",
   "status_section",
   "status",
@@ -49,6 +61,31 @@
    "reqd": 1
   },
   {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name"
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name"
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Full Name"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Phone",
+   "label": "Phone"
+  },
+  {
+   "fieldname": "bio",
+   "fieldtype": "Small Text",
+   "label": "Bio"
+  },
+  {
    "fieldname": "employee_id",
    "fieldtype": "Data",
    "label": "Employee ID"
@@ -63,6 +100,27 @@
    "fieldname": "designation",
    "fieldtype": "Data",
    "label": "Designation"
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Location Information"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
   },
   {
    "fieldname": "permissions_section",
@@ -105,6 +163,23 @@
    "fieldname": "preferences_section",
    "fieldtype": "Section Break",
    "label": "Preferences"
+  },
+  {
+   "fieldname": "avatar",
+   "fieldtype": "Attach Image",
+   "label": "Avatar"
+  },
+  {
+   "fieldname": "timezone",
+   "fieldtype": "Select",
+   "label": "Timezone",
+   "options": "UTC\nEurope/Berlin\nEurope/London\nEurope/Paris\nAsia/Kolkata\nAsia/Dubai\nAmerica/New_York\nAmerica/Los_Angeles\nAustralia/Sydney"
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "label": "Language",
+   "options": "en\nde\nfr\nes\nit\npt\nnl\npl\ncs\nro\nhu\nar\nzh\nja\nko\nhi\nid\ntr\nru"
   },
   {
    "fieldname": "notification_preferences",

@@ -61,23 +61,40 @@ def error_response(code: str, message: str, details: Any = None, http_status_cod
     }
 
 
-def paginated_response(data: list, page: int, page_size: int, total: int) -> dict:
+def paginated_response(
+    data: list | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    total: int = 0,
+    items: list | None = None,
+    total_pages: int | None = None,
+    message: str = "",
+) -> dict:
     """Build a standardised paginated success response envelope."""
     if hasattr(frappe, "response"):
         frappe.response["http_status_code"] = 200
 
-    total_pages = math.ceil(total / page_size) if page_size > 0 else 0
+    items_list = data if data is not None else (items if items is not None else [])
+    calc_total_pages = math.ceil(total / page_size) if page_size > 0 else 0
+    t_pages = total_pages if total_pages is not None else calc_total_pages
 
-    return {
+    res: dict[str, Any] = {
         "success": True,
-        "data": data,
+        "data": items_list,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": t_pages,
         "meta": {
             "page": page,
             "page_size": page_size,
             "total": total,
-            "total_pages": total_pages,
+            "total_pages": t_pages,
         },
     }
+    if message:
+        res["message"] = message
+    return res
 
 
 def not_found_response(doctype: str, name: str) -> dict:

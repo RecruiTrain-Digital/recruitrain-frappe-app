@@ -5,52 +5,18 @@
 recruitrain_employer.validators.job_validator
 ===============================================
 
-Input Validation for Job Opening DocType Payloads.
+Input Validation & Payload Normalization for Job Opening DocType Payloads.
 
 Design Principles
 -----------------
 - All validation methods raise ``ATSValidationError`` on failure.
-- Lightweight ``frappe.db.exists`` calls are acceptable for link-existence
-  checks; no other database reads are performed here.
-- The validator is fully independent of the API layer and can be unit-tested
-  in isolation.
-- Methods are intentionally small and composable: ``validate_create`` and
-  ``validate_update`` delegate to the atomic helpers below.
-
-Allowlisted Fields
-------------------
-``JOB_UPDATABLE_FIELDS`` defines which fields a caller may mutate through the
-update endpoint.  ``company`` is intentionally excluded from updates — the
-company that owns a Job Opening cannot be changed after creation.  System
-fields (``name``, ``owner``, ``creation``, ``modified``, ``docstatus``) are
-never in this list.
-
-Salary Validation
------------------
-``validate_salary_range`` enforces that ``salary_min <= salary_max`` when both
-are provided.  Neither field is individually required; the constraint only
-applies when both are present.  Negative values are also rejected.
-
-Date Validation
----------------
-``validate_dates`` enforces that ``opening_date <= closing_date`` when both
-are provided.  Dates are accepted as strings (``YYYY-MM-DD``) or ``datetime``
-objects; comparison is done after coercing to ``datetime.date``.
-
-Linked-Record Validation
-------------------------
-``validate_company`` and ``validate_department`` perform lightweight
-``frappe.db.exists`` checks.  Department validation is only performed when a
-``department`` value is supplied (it is optional on Job Openings).
-
-Scope — Sprint: Job Opening Management Foundation
---------------------------------------------------
-Out of scope (implemented in future sprints):
-
-- Publishing / closing workflow validation (``validate_publish``)
-- Approval workflow
-- Notifications
-- Permissions
+- Resolvers handle fuzzy/case-insensitive/hyphen-insensitive master resolution.
+- Three distinct validation modes are implemented:
+  1. ``validate_draft()``: Permissive, minimal validation for autosave & drafts.
+  2. ``validate_update()``: Validates only supplied/modified fields.
+  3. ``validate_publish()``: Strict production validation for publishing live jobs.
+- Payload normalization converts UI/camelCase/legacy aliases into canonical backend snake_case.
+- Company resolution is strictly scoped to `get_current_company()`.
 """
 
 from __future__ import annotations
@@ -62,15 +28,14 @@ import frappe
 
 from recruitrain_employer.utils.constants import (
     ALLOWED_JOB_STATUSES,
-    DOCTYPE_COMPANY,
-    DOCTYPE_DEPARTMENT,
-    DOCTYPE_EMPLOYMENT_TYPE,
     JOB_PUBLISH_REQUIRED_FIELDS,
-    JOB_REQUIRED_FIELDS,
     JOB_STATUS_DRAFT,
     JOB_STATUS_OPEN,
 )
 from recruitrain_employer.utils.exceptions import ATSValidationError
+from recruitrain_employer.validators.department_validator import DepartmentResolver
+from recruitrain_employer.validators.employment_type_validator import EmploymentTypeResolver
+from recruitrain_employer.validators.profession_validator import ProfessionResolver
 
 
 class JobValidationMode:
@@ -133,8 +98,8 @@ JOB_FIELD_ALIASES: dict[str, str] = {
 def normalize_job_payload(data: dict) -> dict:
     """Normalize incoming job payload by translating UI/camelCase aliases to canonical snake_case schema names.
 
-    Also normalizes values (such as employment_type formatting). Modifies input payload in-place
-    and returns the normalized dictionary.
+    Also resolves master Link fields (Department, Profession, Employment Type) using robust resolvers.
+    Modifies input payload in-place and returns the normalized dictionary.
     """
     if not isinstance(data, dict):
         return {}
@@ -151,42 +116,30 @@ def normalize_job_payload(data: dict) -> dict:
         mapped[canonical] = val
 
     # Value normalization for employment_type
-    if "employment_type" in mapped and mapped["employment_type"]:
-        raw_emp = str(mapped["employment_type"]).strip()
-        lower_emp = raw_emp.lower()
-        if lower_emp in ("full-time", "full time", "full_time"):
-            mapped["employment_type"] = "Full Time"
-        elif lower_emp in ("part-time", "part time", "part_time"):
-            mapped["employment_type"] = "Part Time"
-        elif lower_emp in ("contract", "contractual"):
-            mapped["employment_type"] = "Contract"
+    if mapped.get("employment_type"):
+        try:
+            mapped["employment_type"] = EmploymentTypeResolver.resolve(str(mapped["employment_type"]))
+        except Exception:
+            pass
 
     # Value normalization for department
-    if "department" in mapped and mapped["department"]:
+    if mapped.get("department"):
         try:
-            from recruitrain_employer.validators.department_validator import (
-                validate_and_normalize_department,
-            )
-            validate_and_normalize_department(mapped)
+            mapped["department"] = DepartmentResolver.resolve(str(mapped["department"]))
         except Exception:
             pass
 
     # Value normalization for profession
-    if "profession" in mapped and mapped["profession"]:
+    if mapped.get("profession"):
         try:
-            from recruitrain_employer.validators.profession_validator import (
-                validate_and_normalize_profession,
-            )
-            validate_and_normalize_profession(mapped)
+            mapped["profession"] = ProfessionResolver.resolve(str(mapped["profession"]))
         except Exception:
             pass
 
     # Value normalization for industry
-    if "industry" in mapped and mapped["industry"]:
+    if mapped.get("industry"):
         try:
-            from recruitrain_employer.validators.industry_validator import (
-                validate_and_normalize_industry,
-            )
+            from recruitrain_employer.validators.industry_validator import validate_and_normalize_industry
             validate_and_normalize_industry(mapped)
         except Exception:
             pass
@@ -237,12 +190,13 @@ JOB_CREATABLE_FIELDS: frozenset[str] = frozenset(
         "benefits",
         "status",
         "published",
+        "published_at",
+        "published_by",
         "featured_job",
     ]
 )
 
 #: Fields a caller may modify on an existing Job Opening.
-#: ``company`` is excluded — the owning company is immutable after creation.
 JOB_UPDATABLE_FIELDS: frozenset[str] = frozenset(
     [
         "job_title",
@@ -279,31 +233,28 @@ JOB_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "benefits",
         "status",
         "published",
+        "published_at",
+        "published_by",
         "featured_job",
     ]
 )
 
 
 class JobValidator:
-    """Stateless validator for Job Opening create, draft, update, and publish payloads.
-
-    Instantiated once per service call.  All methods are side-effect-free
-    except for raising ``ATSValidationError`` on invalid input.
-    """
-
-    # ------------------------------------------------------------------
-    # Top-Level Validators (called by JobService)
-    # ------------------------------------------------------------------
+    """Stateless validator for Job Opening create, draft, update, and publish payloads."""
 
     def validate_draft(self, data: dict) -> None:
-        """Validate a Job Opening draft payload (Draft Validation Mode)."""
+        """Validate a Job Opening draft payload (Draft Validation Mode).
+
+        Permissive mode — only validates numerical logic, dates, and resolves link fields if supplied.
+        Does NOT require mandatory publish fields.
+        """
         normalize_job_payload(data)
         self.validate_salary_range(data)
         self.validate_dates(data)
         self.validate_employment_type(data)
         self.validate_department(data)
         self.validate_profession(data)
-        self.validate_industry(data)
         self.validate_company(data)
 
         if data.get("status"):
@@ -324,13 +275,11 @@ class JobValidator:
         """Validate a Job Opening update payload (Update Validation Mode)."""
         if not data:
             raise ATSValidationError(
-                "No update fields were provided. "
-                "Please supply at least one field to update."
+                "No update fields were provided. Please supply at least one field to update."
             )
 
         normalize_job_payload(data)
 
-        # Ignore and strip unknown / non-updatable fields rather than failing validation
         disallowed = set(data.keys()) - JOB_UPDATABLE_FIELDS
         if disallowed:
             frappe.logger().warning(
@@ -340,16 +289,13 @@ class JobValidator:
                 data.pop(f, None)
 
         if not data:
-            raise ATSValidationError(
-                "No valid updatable fields were provided in the payload."
-            )
+            raise ATSValidationError("No valid updatable fields were provided in the payload.")
 
         self.validate_salary_range(data)
         self.validate_dates(data)
         self.validate_employment_type(data)
         self.validate_department(data)
         self.validate_profession(data)
-        self.validate_industry(data)
 
         if data.get("status"):
             self._validate_status(data["status"])
@@ -357,28 +303,23 @@ class JobValidator:
     def validate_publish(self, data: dict) -> None:
         """Validate a Job Opening prior to publishing (Publish Validation Mode)."""
         normalize_job_payload(data)
+        self.validate_company(data)
         self.validate_required_fields(data, JOB_PUBLISH_REQUIRED_FIELDS)
         self.validate_salary_range(data)
         self.validate_dates(data)
-        self.validate_employment_type(data)
-        self.validate_department(data)
-        self.validate_profession(data)
-        self.validate_industry(data)
-        self.validate_company(data)
+        self.validate_employment_type(data, strict=True)
+        self.validate_department(data, strict=True)
+        self.validate_profession(data, strict=True)
 
         if data.get("status"):
             self._validate_status(data["status"])
 
-    # ------------------------------------------------------------------
-    # Atomic Validators (reusable across methods)
-    # ------------------------------------------------------------------
-
-    def validate_required_fields(
-        self, data: dict, required_fields: list[str]
-    ) -> None:
+    def validate_required_fields(self, data: dict, required_fields: list[str]) -> None:
         """Assert that all fields in ``required_fields`` are present and non-empty."""
         missing = []
         for field in required_fields:
+            if field == "company":
+                continue
             val = data.get(field)
             if field == "job_summary" and not val:
                 val = data.get("description")
@@ -388,17 +329,16 @@ class JobValidator:
                 missing.append(field)
         if missing:
             raise ATSValidationError(
-                f"The following required fields are missing or empty: "
-                f"{', '.join(missing)}.",
+                f"The following required fields are missing or empty: {', '.join(missing)}.",
                 details={"missing_fields": missing},
             )
 
     def validate_salary_range(self, data: dict) -> None:
-        """Assert that ``salary_min <= salary_max`` (or minimum_salary <= maximum_salary) when both are provided."""
+        """Assert that ``salary_min <= salary_max`` when both are provided."""
         salary_min = data.get("minimum_salary") if data.get("minimum_salary") is not None else data.get("salary_min")
         salary_max = data.get("maximum_salary") if data.get("maximum_salary") is not None else data.get("salary_max")
 
-        if salary_min is not None:
+        if salary_min is not None and str(salary_min).strip() != "":
             try:
                 salary_min = float(salary_min)
             except (TypeError, ValueError):
@@ -411,8 +351,10 @@ class JobValidator:
                     "minimum_salary / salary_min cannot be negative.",
                     field="minimum_salary",
                 )
+        else:
+            salary_min = None
 
-        if salary_max is not None:
+        if salary_max is not None and str(salary_max).strip() != "":
             try:
                 salary_max = float(salary_max)
             except (TypeError, ValueError):
@@ -425,16 +367,14 @@ class JobValidator:
                     "maximum_salary / salary_max cannot be negative.",
                     field="maximum_salary",
                 )
+        else:
+            salary_max = None
 
         if salary_min is not None and salary_max is not None:
             if salary_min > salary_max:
                 raise ATSValidationError(
-                    f"minimum_salary ({salary_min}) cannot be greater than "
-                    f"maximum_salary ({salary_max}).",
-                    details={
-                        "minimum_salary": salary_min,
-                        "maximum_salary": salary_max,
-                    },
+                    f"minimum_salary ({salary_min}) cannot be greater than maximum_salary ({salary_max}).",
+                    details={"minimum_salary": salary_min, "maximum_salary": salary_max},
                 )
 
     def validate_dates(self, data: dict) -> None:
@@ -455,58 +395,42 @@ class JobValidator:
                     details={"opening_date": str(opening_date), "closing_date": str(closing_date)},
                 )
 
-    def validate_employment_type(self, data: dict) -> str | None:
-        """Validate and normalize ``employment_type`` against the Employment Type master.
+    def validate_employment_type(self, data: dict, strict: bool = False) -> str | None:
+        """Validate and resolve Employment Type using EmploymentTypeResolver."""
+        raw_val = data.get("employment_type")
+        if not raw_val:
+            if strict:
+                raise ATSValidationError("Employment Type is required for publishing.", field="employment_type")
+            return None
+        canonical = EmploymentTypeResolver.resolve(str(raw_val))
+        data["employment_type"] = canonical
+        return canonical
 
-        Performs case-insensitive, hyphen/space-agnostic lookup and alias resolution,
-        mutating ``data['employment_type']`` with the canonical master record name.
+    def validate_department(self, data: dict, strict: bool = False) -> str | None:
+        """Validate and resolve Department using DepartmentResolver."""
+        raw_val = data.get("department")
+        if not raw_val:
+            if strict:
+                pass  # Department is optional in Job Opening, but if present must be resolved
+            return None
+        canonical = DepartmentResolver.resolve(str(raw_val))
+        data["department"] = canonical
+        return canonical
 
-        Parameters
-        ----------
-        data : dict
-            The input payload dictionary.
-
-        Returns
-        -------
-        str or None
-            The canonical Employment Type master name, or None if not provided.
-
-        Raises
-        ------
-        ATSValidationError
-            If the Employment Type record does not exist in the database.
-        """
-        from recruitrain_employer.validators.employment_type_validator import (
-            validate_and_normalize_employment_type_field,
-        )
-        return validate_and_normalize_employment_type_field(data)
-
-    def validate_department(self, data: dict) -> None:
-        """Validate and normalize Department against the master DocType."""
-        from recruitrain_employer.validators.department_validator import (
-            validate_and_normalize_department,
-        )
-        validate_and_normalize_department(data)
-
-    def validate_profession(self, data: dict) -> None:
-        """Validate and normalize Profession against the master DocType."""
-        from recruitrain_employer.validators.profession_validator import (
-            validate_and_normalize_profession,
-        )
-        validate_and_normalize_profession(data)
-
-    def validate_industry(self, data: dict) -> None:
-        """Validate and normalize Industry against the master DocType."""
-        from recruitrain_employer.validators.industry_validator import (
-            validate_and_normalize_industry,
-        )
-        validate_and_normalize_industry(data)
+    def validate_profession(self, data: dict, strict: bool = False) -> str | None:
+        """Validate and resolve Profession using ProfessionResolver, ensuring it belongs to data['department']."""
+        raw_val = data.get("profession")
+        if not raw_val:
+            return None
+        dept_val = data.get("department")
+        canonical = ProfessionResolver.resolve(str(raw_val), department=str(dept_val) if dept_val else None)
+        data["profession"] = canonical
+        return canonical
 
     def validate_company(self, data: dict) -> str:
-        """Validate and resolve company from the authenticated Employer User.
+        """Validate and resolve company strictly from the authenticated Employer User.
 
-        Forces ``data['company']`` to match the authenticated user's company
-        and validates that the company exists and is active in the database.
+        Never trusts input company in payload.
         """
         from recruitrain_employer.utils.permissions import get_current_company
         current_company = get_current_company()
@@ -514,70 +438,29 @@ class JobValidator:
             data["company"] = current_company
         return current_company
 
-    # ------------------------------------------------------------------
-    # Private Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _parse_date(value: Any, field: str) -> datetime.date:
-        """Parse ``value`` as a ``datetime.date`` and raise on failure.
-
-        Accepts a ``datetime.date``, ``datetime.datetime``, or a ``str`` in
-        ``YYYY-MM-DD`` format.
-
-        Parameters
-        ----------
-        value : Any
-            The raw value to parse.
-        field : str
-            The field name used in the error message.
-
-        Returns
-        -------
-        datetime.date
-            The parsed date object.
-
-        Raises
-        ------
-        ATSValidationError
-            If the value cannot be interpreted as a date.
-        """
+        """Parse value as a datetime.date."""
         if isinstance(value, datetime.datetime):
             return value.date()
-
         if isinstance(value, datetime.date):
             return value
-
         if isinstance(value, str):
             try:
                 return datetime.date.fromisoformat(value.strip())
             except ValueError:
                 pass
-
         raise ATSValidationError(
-            f"'{value}' is not a valid date for field '{field}'. "
-            "Expected format: YYYY-MM-DD.",
+            f"'{value}' is not a valid date for field '{field}'. Expected format: YYYY-MM-DD.",
             field=field,
         )
 
     @staticmethod
     def _validate_status(status: str) -> None:
-        """Assert that ``status`` is in ``ALLOWED_JOB_STATUSES``.
-
-        Parameters
-        ----------
-        status : str
-            The status value to validate.
-
-        Raises
-        ------
-        ATSValidationError
-            If the status is not a recognised Job Opening status.
-        """
+        """Assert status is in ALLOWED_JOB_STATUSES."""
         if status not in ALLOWED_JOB_STATUSES:
             raise ATSValidationError(
-                f"'{status}' is not a valid Job Opening status. "
-                f"Allowed values: {', '.join(ALLOWED_JOB_STATUSES)}.",
+                f"'{status}' is not a valid Job Opening status. Allowed values: {', '.join(ALLOWED_JOB_STATUSES)}.",
                 field="status",
                 details={"allowed_statuses": ALLOWED_JOB_STATUSES},
             )

@@ -16,6 +16,7 @@ Package Layout
 --------------
 - candidate_validator.py    Validates Candidate profile create/update payloads
 - company_validator.py      Validates Company create/update payloads
+- profile_validator.py      Validates Employer Profile update and photo payloads
 - job_validator.py          Validates Job Opening create/update payloads
 - application_validator.py  Validates Job Application create payloads
 - interview_validator.py    Validates Interview schedule and feedback payloads

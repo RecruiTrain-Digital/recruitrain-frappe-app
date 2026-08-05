@@ -496,6 +496,50 @@ def upload_company_logo() -> dict:
         return _handle_ats_exception(exc)
 
 
+@frappe.whitelist()
+def upload_company_banner() -> dict:
+    """Upload or replace the Company banner image for the authenticated employer.
+
+    Returns
+    -------
+    dict
+        {"success": true, "data": {"banner_url": "/files/acme-banner.png"}}
+    """
+    try:
+        company_id = get_current_company()
+
+        uploaded_file = None
+        if hasattr(frappe.request, "files") and "banner" in frappe.request.files:
+            uploaded_file = frappe.request.files["banner"]
+
+        if not uploaded_file or not uploaded_file.filename:
+            raise ATSValidationError(
+                "No banner file was provided. Send a multipart/form-data request "
+                "with a file field named 'banner'.",
+                field="banner",
+            )
+
+        file_name: str = uploaded_file.filename
+        file_content: bytes = uploaded_file.read()
+        content_type: str = (
+            uploaded_file.content_type
+            or frappe.form_dict.get("content_type", "application/octet-stream")
+        )
+
+        service = CompanyService()
+        result = service.upload_company_banner(
+            company_id=company_id,
+            file_content=file_content,
+            file_name=file_name,
+            content_type=content_type,
+        )
+
+        return success_response(data=result, message="Company banner uploaded successfully.")
+
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
 
 # ---------------------------------------------------------------------------
 # Private Input Helpers
@@ -503,24 +547,10 @@ def upload_company_logo() -> dict:
 
 
 def _extract_company_fields(form_dict, exclude: set[str] | None = None) -> dict:
-    """Extract Company field values from the Frappe form dict.
+    """Extract Company field values from the Frappe form dict or JSON request body.
 
-    Strips Frappe internal parameters (``cmd``, ``csrf_token``, etc.) and
-    any caller-specified ``exclude`` keys, returning only fields that belong
-    to the Company payload.
-
-    Parameters
-    ----------
-    form_dict : frappe.local.form_dict
-        The raw request parameters dict.
-    exclude : set[str] or None, optional
-        Additional keys to exclude (e.g. ``{"company_id"}`` when the ID is
-        a path parameter rather than a body field).
-
-    Returns
-    -------
-    dict
-        A clean dict of company field key/value pairs.
+    Strips Frappe internal parameters (cmd, csrf_token, etc.) and any caller-specified
+    exclude keys, returning only fields that belong to the Company payload.
     """
     _FRAPPE_INTERNAL_KEYS: frozenset[str] = frozenset(
         ["cmd", "csrf_token", "doctype", "docname"]
@@ -528,11 +558,48 @@ def _extract_company_fields(form_dict, exclude: set[str] | None = None) -> dict:
 
     skip = _FRAPPE_INTERNAL_KEYS | (exclude or set())
 
-    return {
-        key: value
-        for key, value in form_dict.items()
-        if key not in skip and value not in (None, "")
-    }
+    raw_combined = {}
+    req = getattr(frappe, "request", None)
+    if req and getattr(req, "is_json", False):
+        try:
+            parsed_json = req.get_json() or {}
+            if isinstance(parsed_json, dict):
+                raw_combined.update(parsed_json)
+        except Exception:
+            pass
+
+    for k, v in dict(form_dict or {}).items():
+        if k not in raw_combined:
+            raw_combined[k] = v
+
+    # Check if 'data' parameter contains a nested dict or stringified JSON
+    if "data" in raw_combined:
+        d_val = raw_combined.pop("data")
+        if isinstance(d_val, dict):
+            raw_combined.update(d_val)
+        elif isinstance(d_val, str) and d_val.strip().startswith("{"):
+            import json
+            try:
+                parsed_data = json.loads(d_val)
+                if isinstance(parsed_data, dict):
+                    raw_combined.update(parsed_data)
+            except Exception:
+                pass
+
+    extracted = {}
+    for key, value in raw_combined.items():
+        if key in skip:
+            msg = f"[STAGE 4: Filter Removed] Field '{key}' removed (Reason: Frappe internal or excluded parameter)"
+            frappe.logger().info(msg)
+            print(msg)
+            continue
+        if value not in (None, ""):
+            extracted[key] = value
+
+    stage4_msg = f"[STAGE 4: Payload Received in api/company.py] {extracted}"
+    frappe.logger().info(stage4_msg)
+    print(stage4_msg)
+    return extracted
 
 
 def _extract_list_filters(form_dict) -> dict:

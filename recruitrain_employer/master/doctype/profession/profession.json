@@ -9,7 +9,10 @@
  "field_order": [
   "section_break_xnuv",
   "profession_name",
-  "is_active"
+  "department",
+  "description",
+  "is_active",
+  "display_order"
  ],
  "fields": [
   {
@@ -20,19 +23,38 @@
    "fieldname": "profession_name",
    "fieldtype": "Data",
    "label": "Profession Name",
+   "reqd": 1,
    "unique": 1
   },
   {
-   "default": "0",
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "1",
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 17:39:37.327851",
+ "modified": "2026-08-05 15:45:00.000000",
  "modified_by": "Administrator",
  "module": "Master",
  "name": "Profession",
@@ -54,7 +76,7 @@
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,
- "sort_field": "creation",
- "sort_order": "DESC",
+ "sort_field": "display_order",
+ "sort_order": "ASC",
  "states": []
 }

@@ -17,6 +17,7 @@ Package Layout
 - candidate_service.py     Candidate profile and sub-resource operations
 - company_service.py       Company profile management
 - employer_service.py      Employer user and team management
+- profile_service.py       Employer Profile retrieval, partial updates, and avatar uploads
 - job_service.py           Job Opening lifecycle (create, publish, close, search)
 - application_service.py   Job Application pipeline and stage transitions
 - interview_service.py     Interview scheduling, rescheduling, and feedback

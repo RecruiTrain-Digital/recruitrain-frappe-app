@@ -42,6 +42,8 @@
   "status_section",
   "status",
   "published",
+  "published_at",
+  "published_by",
   "featured_job"
  ],
  "fields": [
@@ -247,6 +249,16 @@
    "fieldname": "published",
    "fieldtype": "Check",
    "label": "Published"
+  },
+  {
+   "fieldname": "published_at",
+   "fieldtype": "Datetime",
+   "label": "Published At"
+  },
+  {
+   "fieldname": "published_by",
+   "fieldtype": "Data",
+   "label": "Published By"
   },
   {
    "default": "0",

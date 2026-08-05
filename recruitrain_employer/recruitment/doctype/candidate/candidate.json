@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "personal_information_section",
+  "company",
   "candidate_id",
   "candidate_name",
   "first_name",
@@ -63,6 +64,13 @@
    "fieldname": "personal_information_section",
    "fieldtype": "Section Break",
    "label": "Personal Information"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company"
   },
   {
    "fieldname": "candidate_id",
@@ -272,8 +280,7 @@
   {
    "fieldname": "resume",
    "fieldtype": "Attach",
-   "label": "Resume",
-   "reqd": 1
+   "label": "Resume"
   },
   {
    "fieldname": "profile_completion",
@@ -362,6 +369,18 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
    "share": 1,
    "write": 1
   }

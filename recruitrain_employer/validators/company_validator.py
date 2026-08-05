@@ -103,7 +103,9 @@ COMPANY_CREATABLE_FIELDS: frozenset[str] = frozenset(
 COMPANY_UPDATABLE_FIELDS: frozenset[str] = frozenset(
     [
         "legal_name",
+        "company_code",
         "industry",
+        "email",
         "phone",
         "alternate_phone",
         "hr_email",
@@ -116,13 +118,24 @@ COMPANY_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "address_line_1",
         "address_line_2",
         "postal_code",
-        "status",
-        "founded_year",
-        "company_size",
+        "logo",
+        "banner",
+        "primary_color",
+        "secondary_color",
         "linkedin",
         "twitter",
         "facebook",
         "instagram",
+        "status",
+        "founded_year",
+        "company_size",
+        "timezone",
+        "language",
+        "date_format",
+        "currency",
+        "theme",
+        "verified",
+        "active",
     ]
 )
 
@@ -242,41 +255,67 @@ class CompanyValidator:
         """Normalize and validate a Company update payload.
 
         Normalization is applied **in-place** on ``data`` before validation.
-
-        Parameters
-        ----------
-        data : dict
-            Partial Company fields from the API request.  Must be non-empty.
-            Modified in-place to contain normalized ``phone`` and ``website``
-            values if present.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``data`` is empty, contains non-updatable fields, or any
-            provided value is invalid after normalization.
-
-        Checks Performed (in order)
-        ---------------------------
-        1. ``data`` contains at least one field (no-op updates rejected).
-        2. All keys in ``data`` are present in ``COMPANY_UPDATABLE_FIELDS``.
-        3. Normalize and validate ``phone`` if present.
-        4. Normalize and validate ``website`` if present.
-        5. Validate ``linkedin_url`` and ``twitter_url`` if present.
         """
-        if not data:
-            raise ATSValidationError(
-                "No update fields were provided. "
-                "Please supply at least one field to update."
-            )
+        alias_map = {
+            "legalName": "legal_name",
+            "companyName": "legal_name",
+            "companyCode": "company_code",
+            "industryIds": "industry",
+            "companySize": "company_size",
+            "size": "company_size",
+            "foundedYear": "founded_year",
+            "about": "description",
+            "contactEmail": "email",
+            "contactPhone": "phone",
+            "alternatePhone": "alternate_phone",
+            "hrEmail": "hr_email",
+            "supportEmail": "support_email",
+            "street": "address_line_1",
+            "addressLine1": "address_line_1",
+            "addressLine2": "address_line_2",
+            "postalCode": "postal_code",
+            "pincode": "postal_code",
+            "primaryColor": "primary_color",
+            "secondaryColor": "secondary_color",
+            "dateFormat": "date_format",
+        }
+
+        for key in list(data.keys()):
+            if key in alias_map:
+                canonical_key = alias_map[key]
+                val = data.pop(key)
+                if canonical_key not in data or not data[canonical_key]:
+                    data[canonical_key] = val
+                msg = f"[STAGE 6: Filter Remapped] Key '{key}' remapped to canonical '{canonical_key}'"
+                frappe.logger().info(msg)
+                print(msg)
+
+        stage5_msg = f"[STAGE 5: Validator Output Payload] {data}"
+        frappe.logger().info(stage5_msg)
+        print(stage5_msg)
 
         disallowed = set(data.keys()) - COMPANY_UPDATABLE_FIELDS
         if disallowed:
+            for field in sorted(disallowed):
+                msg = f"[STAGE 6: Filter Removed] Field '{field}' removed (Reason: Not present in COMPANY_UPDATABLE_FIELDS)"
+                frappe.logger().info(msg)
+                print(msg)
+                data.pop(field, None)
+
+        stage6_msg = f"[STAGE 6: Filtered Payload against COMPANY_UPDATABLE_FIELDS] {data}"
+        frappe.logger().info(stage6_msg)
+        print(stage6_msg)
+
+        if not data:
             raise ATSValidationError(
-                f"The following fields cannot be updated via this endpoint: "
-                f"{', '.join(sorted(disallowed))}.",
-                details={"disallowed_fields": sorted(disallowed)},
+                "No valid update fields remained after filtering against COMPANY_UPDATABLE_FIELDS. "
+                "Stage 6 removed all fields because none matched the allowed backend updatable schema."
             )
+
+        if data.get("founded_year"):
+            fy = str(data["founded_year"]).strip()
+            if len(fy) == 4 and fy.isdigit():
+                data["founded_year"] = f"{fy}-01-01"
 
         if data.get("phone"):
             data["phone"] = self.normalize_phone(data["phone"])

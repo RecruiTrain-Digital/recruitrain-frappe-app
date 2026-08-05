@@ -599,6 +599,10 @@ class CompanyService:
         doc = self._get_or_raise(company_id)
         changed_fields = self._apply_changed_fields(doc, data)
 
+        stage7_msg = f"[STAGE 7: Payload Immediately Before doc.save()] {changed_fields}"
+        frappe.logger().info(stage7_msg)
+        print(stage7_msg)
+
         if changed_fields:
             from frappe.exceptions import DuplicateEntryError
             try:
@@ -709,6 +713,72 @@ class CompanyService:
         )
 
         return {"logo_url": logo_url}
+
+    def upload_company_banner(self, company_id: str, file_content: bytes, file_name: str, content_type: str) -> dict:
+        """Upload or replace the Company banner image and persist the URL.
+
+        Parameters
+        ----------
+        company_id : str
+            The name of the Company.
+        file_content : bytes
+            Raw file bytes.
+        file_name : str
+            Original file name.
+        content_type : str
+            MIME type.
+
+        Returns
+        -------
+        dict
+            {"banner_url": "<url>"}
+        """
+        from recruitrain_employer.utils.constants import ALLOWED_IMAGE_TYPES, MAX_LOGO_SIZE_MB
+
+        if content_type not in ALLOWED_IMAGE_TYPES:
+            raise ATSValidationError(
+                f"File type '{content_type}' is not allowed for company banners. "
+                f"Allowed types: {', '.join(ALLOWED_IMAGE_TYPES)}.",
+                field="banner",
+            )
+
+        max_bytes = MAX_LOGO_SIZE_MB * 1024 * 1024
+        if len(file_content) > max_bytes:
+            raise ATSValidationError(
+                f"Banner file exceeds the maximum allowed size of {MAX_LOGO_SIZE_MB} MB.",
+                field="banner",
+            )
+
+        doc = self._get_or_raise(company_id)
+
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": file_name,
+                "content": file_content,
+                "attached_to_doctype": DOCTYPE_COMPANY,
+                "attached_to_name": company_id,
+                "attached_to_field": "banner",
+                "is_private": 0,
+            }
+        )
+        file_doc.insert(ignore_permissions=True)
+
+        banner_url: str = file_doc.file_url
+        doc.db_set("banner", banner_url)
+
+        self._notify(
+            title="Company Banner Updated",
+            message=f"Banner for company '{doc.company_name}' was uploaded.",
+            priority="Low",
+            category="System",
+            company=doc.name,
+            entity_id=doc.name,
+            action_url="/profile",
+            action_label="View Profile",
+        )
+
+        return {"banner_url": banner_url}
 
     @staticmethod
     def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
