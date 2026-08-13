@@ -128,6 +128,15 @@ class InterviewService:
         # Enforce Company Scoping against Job Application's company
         self._assert_company_access(app_doc.company)
 
+        # Enforce Application Eligibility (Terminal stages: Hired, Rejected, Withdrawn are ineligible)
+        app_stage = getattr(app_doc, "current_stage", None) or getattr(app_doc, "status", None)
+        if app_stage in ("Hired", "Rejected", "Withdrawn"):
+            raise ATSValidationError(
+                f"Job Application '{data['job_application']}' is in terminal stage '{app_stage}' and is not eligible for interview scheduling.",
+                field="job_application",
+                details={"job_application": data["job_application"], "current_stage": app_stage},
+            )
+
         # Validate candidate consistency if explicitly provided
         if data.get("candidate") and str(data["candidate"]) != str(app_doc.candidate):
             raise ATSValidationError(
@@ -252,6 +261,59 @@ class InterviewService:
                 f"Interview '{interview_id}' cannot be deleted because it is referenced by linked records.",
                 details={"interview_id": interview_id},
             ) from exc
+
+    def list_unscheduled_applications(self) -> list[dict]:
+        """Return Job Applications in 'Interview' stage that do not have an Interview DocType record yet."""
+        user = getattr(frappe.session, "user", "")
+        current_comp = get_current_company() if user != "Administrator" else None
+
+        app_filters = {"current_stage": "Interview"}
+        if current_comp:
+            app_filters["company"] = current_comp
+
+        interview_apps = frappe.get_list(
+            DOCTYPE_JOB_APPLICATION,
+            filters=app_filters,
+            fields=["name", "candidate", "job_opening", "company", "current_stage", "status", "applied_on", "creation"],
+            order_by="creation desc",
+            ignore_permissions=True,
+        )
+
+        if not interview_apps:
+            return []
+
+        int_filters = {}
+        if current_comp:
+            int_filters["company"] = current_comp
+
+        existing_int_app_ids = {
+            str(app_id).strip()
+            for app_id in frappe.get_all(
+                DOCTYPE_INTERVIEW,
+                filters=int_filters,
+                pluck="job_application",
+                ignore_permissions=True,
+            )
+            if app_id
+        }
+
+        unscheduled = []
+        for app in interview_apps:
+            app_id = str(app["name"]).strip()
+            if app_id not in existing_int_app_ids:
+                unscheduled.append({
+                    "job_application": app_id,
+                    "candidate": str(app["candidate"]),
+                    "job_opening": str(app["job_opening"]),
+                    "company": app["company"],
+                    "current_stage": app["current_stage"],
+                    "application_status": app["status"],
+                    "status": "Not Scheduled",
+                    "interview_status": "Not Scheduled",
+                    "applied_on": str(app.get("applied_on") or app.get("creation") or ""),
+                })
+
+        return unscheduled
 
     def list_interviews(
         self,

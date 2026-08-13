@@ -220,6 +220,18 @@ def search_interviews() -> dict:
         return _handle_ats_exception(exc)
 
 
+@frappe.whitelist()
+@employer_required
+def list_unscheduled_applications() -> dict:
+    """Retrieve Job Applications in 'Interview' stage that do not have an Interview record yet."""
+    try:
+        service = InterviewService()
+        data = service.list_unscheduled_applications()
+        return success_response(data=data)
+    except ATSException as exc:
+        return _handle_ats_exception(exc)
+
+
 # ---------------------------------------------------------------------------
 # Private Helpers
 # ---------------------------------------------------------------------------
