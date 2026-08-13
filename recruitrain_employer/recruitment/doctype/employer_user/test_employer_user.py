@@ -14,9 +14,10 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 class IntegrationTestEmployerUser(IntegrationTestCase):
-	"""
-	Integration tests for EmployerUser.
-	Use this class for testing interactions between multiple components.
-	"""
+	"""Integration tests for EmployerUser login auditing and lifecycle functionality."""
 
-	pass
+	def test_login_auditing_workflow(self):
+		"""Run the full login auditing test suite."""
+		from recruitrain_employer.tests.test_login_audit import run_tests
+		run_tests()
+

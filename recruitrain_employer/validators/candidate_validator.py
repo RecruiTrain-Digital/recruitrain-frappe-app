@@ -91,7 +91,11 @@ CANDIDATE_CREATABLE_FIELDS: frozenset[str] = frozenset(
     ]
 )
 
-CANDIDATE_UPDATABLE_FIELDS: frozenset[str] = CANDIDATE_CREATABLE_FIELDS - {"email"}
+CANDIDATE_UPDATABLE_FIELDS: frozenset[str] = CANDIDATE_CREATABLE_FIELDS - {
+    "email",
+    "company",
+    "candidate_id",
+}
 
 _PHONE_RE: re.Pattern = re.compile(r"^\+?\d{7,15}$")
 _PHONE_STRIP_RE: re.Pattern = re.compile(r"[\s\-().]")

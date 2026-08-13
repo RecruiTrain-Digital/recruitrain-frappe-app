@@ -99,15 +99,13 @@ class NotificationService:
         elif to_date:
             filters["creation"] = ["<=", to_date]
 
-        frappe_filters = list(filters.items())
-
+        or_filters = None
         if search:
-            search_clause = [
+            or_filters = [
                 ["subject", "like", f"%{search}%"],
                 ["email_content", "like", f"%{search}%"],
                 ["document_name", "like", f"%{search}%"],
             ]
-            frappe_filters.append(["OR", search_clause])
 
         order_by_clause = f"{actual_order_by} {order_dir}"
 
@@ -131,14 +129,26 @@ class NotificationService:
         try:
             records = frappe.get_all(
                 DOCTYPE_NOTIFICATION,
-                filters=frappe_filters,
+                filters=filters,
+                or_filters=or_filters,
                 fields=fields,
                 order_by=order_by_clause,
                 start=(page - 1) * page_size,
                 page_length=page_size,
             )
 
-            total = frappe.db.count(DOCTYPE_NOTIFICATION, filters=frappe_filters)
+            if or_filters:
+                total = len(
+                    frappe.get_all(
+                        DOCTYPE_NOTIFICATION,
+                        filters=filters,
+                        or_filters=or_filters,
+                        pluck="name",
+                        ignore_permissions=True,
+                    )
+                )
+            else:
+                total = frappe.db.count(DOCTYPE_NOTIFICATION, filters=filters)
 
             unread_filter = {"for_user": user, "read": 0}
             if has_company_field and company:
@@ -456,6 +466,12 @@ class NotificationService:
         data = NotificationValidator.validate_create(raw_data)
         meta = frappe.get_meta(DOCTYPE_NOTIFICATION)
 
+        sender = created_by or getattr(frappe.session, "user", None)
+        if not sender or not frappe.db.exists("User", sender):
+            sender = getattr(frappe.session, "user", "Administrator")
+            if not frappe.db.exists("User", sender):
+                sender = "Administrator"
+
         doc_dict = {
             "doctype": DOCTYPE_NOTIFICATION,
             "subject": data["title"],
@@ -463,11 +479,11 @@ class NotificationService:
             "for_user": recipient,
             "type": data["notification_type"],
             "read": 0,
-            "from_user": created_by or getattr(frappe.session, "user", "System"),
-            "document_type": data.get("entity_type"),
-            "document_name": data.get("entity_id"),
-            "link": data.get("action_url"),
-            "email_header": data.get("action_label"),
+            "from_user": sender,
+            "document_type": data.get("entity_type") or "Notification Log",
+            "document_name": data.get("entity_id") or "",
+            "link": data.get("action_url") or "",
+            "email_header": data.get("action_label") or data.get("title") or "New Notification",
         }
 
         if meta.has_field("company"):

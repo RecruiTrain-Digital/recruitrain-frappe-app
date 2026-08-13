@@ -23,10 +23,12 @@ from recruitrain_employer.utils.constants import (
     DOCTYPE_COMPANY,
 )
 from recruitrain_employer.utils.exceptions import (
+    ATSAuthenticationError,
     ATSNotFoundError,
     ATSPermissionError,
     ATSValidationError,
 )
+from recruitrain_employer.utils.login_audit import get_employer_user_for_user
 
 
 class EmployerService:
@@ -81,6 +83,44 @@ class EmployerService:
         doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, employer_user_id)
         return doc.as_dict()
 
+    def get_last_login(self, user: str | None = None) -> dict:
+        """Retrieve last login audit details for an Employer User.
+
+        Parameters
+        ----------
+        user : str | None, optional
+            Frappe user ID / email. Defaults to currently authenticated session user.
+
+        Returns
+        -------
+        dict
+            Dict containing last login timestamp, IP, User-Agent, and login count.
+        """
+        user_id = user or getattr(frappe.session, "user", None) or "Guest"
+
+        if user_id == "Guest":
+            raise ATSAuthenticationError("Authentication required. Please log in.")
+
+        emp_user_name = get_employer_user_for_user(user_id)
+        if not emp_user_name:
+            if user_id == "Administrator":
+                return {
+                    "user": "Administrator",
+                    "last_login_at": None,
+                    "last_login_ip": None,
+                    "last_login_user_agent": None,
+                    "login_count": 0,
+                }
+            raise ATSNotFoundError(
+                f"Employer User mapping for '{user_id}' was not found.",
+                doctype=DOCTYPE_EMPLOYER_USER,
+                name=user_id,
+            )
+
+        doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, emp_user_name)
+        return doc.get_last_login()
+
+
     def list_employer_users(self, filters: dict | None = None, pagination: dict | None = None) -> dict:
         """Return a paginated list of Employer Users for the current company."""
         filters = filters or {}
@@ -129,7 +169,7 @@ class EmployerService:
         doc.save(ignore_permissions=True)
 
         company = getattr(doc, "company", None)
-        recipient = getattr(doc, "user", doc.email)
+        recipient = getattr(doc, "user", None) or doc.get("email")
         self._notify(
             title="Employer Profile Updated",
             message=f"Employer user account {doc.name} was updated.",

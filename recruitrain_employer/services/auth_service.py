@@ -107,6 +107,15 @@ class AuthService:
             raise ATSValidationError("Password is required.", field="password")
 
         try:
+            if not getattr(frappe.local, "request", None):
+                class DummyRequest:
+                    path = "/api/method/login"
+                    headers = {}
+                frappe.local.request = DummyRequest()
+
+            if not getattr(frappe.local, "login_manager", None):
+                frappe.local.login_manager = frappe.auth.LoginManager()
+
             frappe.local.login_manager.authenticate(user=email, pwd=password)
             frappe.local.login_manager.post_login()
         except frappe.AuthenticationError:
@@ -306,9 +315,19 @@ class AuthService:
         user = frappe.session.user
         roles = frappe.get_roles(user)
 
+        csrf_token = None
+        try:
+            if hasattr(frappe, "sessions") and hasattr(frappe.sessions, "get_csrf_token"):
+                csrf_token = frappe.sessions.get_csrf_token()
+                if hasattr(frappe.local, "cookie_manager"):
+                    frappe.local.cookie_manager.set_cookie("csrf_token", csrf_token, deduplicate=True)
+        except Exception:
+            csrf_token = getattr(getattr(frappe.local, "session", None), "data", {}).get("csrf_token")
+
         return {
             "authenticated": True,
             "user": user,
             "full_name": frappe.session.data.get("full_name", ""),
             "roles": roles,
+            "csrf_token": csrf_token,
         }

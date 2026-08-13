@@ -9,6 +9,7 @@
   "basic_information_section",
   "feedback_name",
   "interview",
+  "job_application",
   "candidate",
   "job_opening",
   "interviewer",
@@ -51,11 +52,18 @@
    "reqd": 1
   },
   {
+   "fieldname": "job_application",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Job Application",
+   "options": "Job Application"
+  },
+  {
    "fieldname": "candidate",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Candidate",
-   "options": "Job Opening",
+   "options": "Candidate",
    "reqd": 1
   },
   {

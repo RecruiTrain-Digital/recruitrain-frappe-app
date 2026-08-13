@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "autoincrement",
+ "creation": "2026-08-11 12:28:25.538191",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_p6qm",
+  "company",
+  "company_subscription",
+  "usage_section",
+  "current_active_jobs",
+  "current_recruiters",
+  "current_candidates",
+  "storage_used_gb",
+  "email_used",
+  "sms_used",
+  "ai_credits_used"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_p6qm",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "company_subscription",
+   "fieldtype": "Link",
+   "label": "Company Subscription",
+   "options": "Company Subscription"
+  },
+  {
+   "fieldname": "usage_section",
+   "fieldtype": "Section Break",
+   "label": "Usage"
+  },
+  {
+   "fieldname": "current_active_jobs",
+   "fieldtype": "Int",
+   "label": "Current Active Jobs"
+  },
+  {
+   "fieldname": "current_recruiters",
+   "fieldtype": "Int",
+   "label": "Current Recruiters"
+  },
+  {
+   "fieldname": "current_candidates",
+   "fieldtype": "Int",
+   "label": "Current Candidates"
+  },
+  {
+   "fieldname": "storage_used_gb",
+   "fieldtype": "Float",
+   "label": "Storage Used GB"
+  },
+  {
+   "fieldname": "email_used",
+   "fieldtype": "Int",
+   "label": "Email Used"
+  },
+  {
+   "fieldname": "sms_used",
+   "fieldtype": "Int",
+   "label": "SMS Used"
+  },
+  {
+   "fieldname": "ai_credits_used",
+   "fieldtype": "Int",
+   "label": "AI Credits Used"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-11 12:31:47.477463",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Subscription Usage",
+ "naming_rule": "Autoincrement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

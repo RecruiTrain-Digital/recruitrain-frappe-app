@@ -7,3 +7,4 @@
 recruitrain_employer.patches.v1_0.populate_applied_on.execute
 recruitrain_employer.patches.v1_0.setup_notification_log_fields.execute
 recruitrain_employer.patches.v1_0.seed_masters.execute
+recruitrain_employer.patches.v1_0.backfill_ats_domain_relationships.execute

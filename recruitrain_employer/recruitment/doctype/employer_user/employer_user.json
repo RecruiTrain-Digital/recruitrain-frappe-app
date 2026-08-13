@@ -35,7 +35,11 @@
   "notification_preferences",
   "status_section",
   "status",
-  "last_login"
+  "last_login",
+  "last_login_at",
+  "last_login_ip",
+  "last_login_user_agent",
+  "login_count"
  ],
  "fields": [
   {
@@ -202,6 +206,27 @@
    "fieldname": "last_login",
    "fieldtype": "Datetime",
    "label": "Last Login"
+  },
+  {
+   "fieldname": "last_login_at",
+   "fieldtype": "Datetime",
+   "label": "Last Login At"
+  },
+  {
+   "fieldname": "last_login_ip",
+   "fieldtype": "Data",
+   "label": "Last Login IP"
+  },
+  {
+   "fieldname": "last_login_user_agent",
+   "fieldtype": "Small Text",
+   "label": "Last Login User Agent"
+  },
+  {
+   "default": "0",
+   "fieldname": "login_count",
+   "fieldtype": "Int",
+   "label": "Login Count"
   }
  ],
  "grid_page_length": 50,

@@ -1,0 +1,254 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:plan_name",
+ "creation": "2026-08-11 11:47:59.516921",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_exqy",
+  "plan_name",
+  "description",
+  "monthly_price",
+  "yearly_price",
+  "currency",
+  "trial_days",
+  "is_active",
+  "display_order",
+  "limits_section",
+  "max_active_jobs",
+  "max_recruiters",
+  "max_candidates",
+  "storage_gb",
+  "monthly_email_limit",
+  "monthly_sms_limit",
+  "ai_credits",
+  "features_section",
+  "can_use_analytics",
+  "can_use_talent_pool",
+  "can_use_api",
+  "can_use_interview_schedulercan_use_interview_scheduler",
+  "can_use_custom_pipelinecan_use_custom_pipeline",
+  "can_use_brandingcan_use_branding",
+  "can_use_notescan_use_notes",
+  "can_use_notifications",
+  "can_export_csvcan_export_csv",
+  "priority_support",
+  "stripe_section",
+  "stripe_product_id",
+  "stripe_monthly_price_id",
+  "stripe_yearly_price_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_exqy",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "plan_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Plan Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "monthly_price",
+   "fieldtype": "Currency",
+   "label": "Monthly Price"
+  },
+  {
+   "fieldname": "yearly_price",
+   "fieldtype": "Currency",
+   "label": "Yearly Price"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "trial_days",
+   "fieldtype": "Int",
+   "label": "Trial Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active",
+   "reqd": 1
+  },
+  {
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "fieldname": "limits_section",
+   "fieldtype": "Section Break",
+   "label": "Limits"
+  },
+  {
+   "fieldname": "max_active_jobs",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Max Active Jobs",
+   "reqd": 1
+  },
+  {
+   "fieldname": "max_recruiters",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Max Recruiters",
+   "reqd": 1
+  },
+  {
+   "fieldname": "max_candidates",
+   "fieldtype": "Int",
+   "label": "Max Candidates"
+  },
+  {
+   "fieldname": "storage_gb",
+   "fieldtype": "Float",
+   "label": "Storage (GB)"
+  },
+  {
+   "fieldname": "monthly_email_limit",
+   "fieldtype": "Int",
+   "label": "Monthly Email Limit"
+  },
+  {
+   "fieldname": "monthly_sms_limit",
+   "fieldtype": "Int",
+   "label": "Monthly SMS Limit"
+  },
+  {
+   "fieldname": "ai_credits",
+   "fieldtype": "Int",
+   "label": "AI Credits"
+  },
+  {
+   "fieldname": "features_section",
+   "fieldtype": "Section Break",
+   "label": "Features"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_analytics",
+   "fieldtype": "Check",
+   "label": "Can Use Analytics"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_talent_pool",
+   "fieldtype": "Check",
+   "label": "Can Use Talent Pool"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_api",
+   "fieldtype": "Check",
+   "label": "Can Use API"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_interview_schedulercan_use_interview_scheduler",
+   "fieldtype": "Check",
+   "label": "Can Use Interview SchedulerCan Use Interview Scheduler"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_custom_pipelinecan_use_custom_pipeline",
+   "fieldtype": "Check",
+   "label": "Can Use Custom PipelineCan Use Custom Pipeline"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_brandingcan_use_branding",
+   "fieldtype": "Check",
+   "label": "Can Use BrandingCan Use Branding"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_notescan_use_notes",
+   "fieldtype": "Check",
+   "label": "Can Use NotesCan Use Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_use_notifications",
+   "fieldtype": "Check",
+   "label": "Can Use Notifications"
+  },
+  {
+   "default": "0",
+   "fieldname": "can_export_csvcan_export_csv",
+   "fieldtype": "Check",
+   "label": "Can Export CSVCan Export CSV"
+  },
+  {
+   "default": "0",
+   "fieldname": "priority_support",
+   "fieldtype": "Check",
+   "label": "Priority Support"
+  },
+  {
+   "fieldname": "stripe_section",
+   "fieldtype": "Section Break",
+   "label": "Stripe"
+  },
+  {
+   "fieldname": "stripe_product_id",
+   "fieldtype": "Data",
+   "label": "Stripe Product ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "stripe_monthly_price_id",
+   "fieldtype": "Data",
+   "label": "Stripe Monthly Price ID"
+  },
+  {
+   "fieldname": "stripe_yearly_price_id",
+   "fieldtype": "Data",
+   "label": "Stripe Yearly Price ID"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-11 12:02:37.772883",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Subscription_Plan_Recruitrain",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

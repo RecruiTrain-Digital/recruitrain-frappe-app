@@ -15,6 +15,7 @@
   "source",
   "resume",
   "cover_letter",
+  "notes",
   "pipeline_section",
   "current_stage",
   "assigned_recruiter",
@@ -76,6 +77,11 @@
    "fieldname": "cover_letter",
    "fieldtype": "Small Text",
    "label": "Cover Letter"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
   },
   {
    "fieldname": "pipeline_section",

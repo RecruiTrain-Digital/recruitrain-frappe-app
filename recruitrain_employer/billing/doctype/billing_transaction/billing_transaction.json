@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "autoincrement",
+ "creation": "2026-08-11 12:32:06.858088",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_detf",
+  "company",
+  "company_subscription",
+  "amount",
+  "currency",
+  "invoice_number",
+  "payment_status",
+  "stripe_payment_intent",
+  "receipt_url",
+  "paid_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_detf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company_subscription",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Subscription",
+   "options": "Company Subscription",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "invoice_number",
+   "fieldtype": "Data",
+   "label": "Invoice Number"
+  },
+  {
+   "fieldname": "payment_status",
+   "fieldtype": "Select",
+   "label": "Payment Status",
+   "options": "Pending\nPaid\nRefunded\nFailed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "stripe_payment_intent",
+   "fieldtype": "Data",
+   "label": "Stripe Payment Intent"
+  },
+  {
+   "fieldname": "receipt_url",
+   "fieldtype": "Data",
+   "label": "Receipt URL"
+  },
+  {
+   "fieldname": "paid_at",
+   "fieldtype": "Datetime",
+   "label": "Paid At"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-11 12:38:48.955759",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Billing Transaction",
+ "naming_rule": "Autoincrement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

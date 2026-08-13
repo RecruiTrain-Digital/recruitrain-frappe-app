@@ -85,3 +85,13 @@ def update_employer_role(employer_user_id: str):
     svc = EmployerService()
     result = svc.update_employer_role(employer_user_id, role)
     return success_response(data=result, message="Employer role updated successfully.")
+
+
+@frappe.whitelist()
+@employer_required
+def get_last_login(user: str | None = None):
+    """Retrieve last login audit details for an Employer User."""
+    svc = EmployerService()
+    data = svc.get_last_login(user)
+    return success_response(data=data, message="Last login audit details retrieved successfully.")
+

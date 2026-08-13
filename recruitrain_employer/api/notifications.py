@@ -43,12 +43,18 @@ from recruitrain_employer.utils.response import (
 from recruitrain_employer.validators.notification_validator import NotificationValidator
 
 
-def _handle_ats_exception(exc: ATSException) -> dict[str, Any]:
-    """Translate an ATSException into a standardised error response dict."""
+def _handle_ats_exception(exc: Exception) -> dict[str, Any]:
+    """Translate an ATSException or general Exception into a standardised error response dict."""
+    if isinstance(exc, ATSException):
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+        )
     return error_response(
-        code=exc.code,
-        message=exc.message,
-        details=exc.details,
+        code="INTERNAL_SERVER_ERROR",
+        message=str(exc),
+        http_status_code=500,
     )
 
 
@@ -93,7 +99,7 @@ def list_notifications() -> dict[str, Any]:
             page_size=result["page_size"],
             total=result["total"],
         )
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -125,7 +131,7 @@ def get_notification(notification_id: str | None = None) -> dict[str, Any]:
         record = service.get_notification(notification_id=target_id, user=user, company=company)
 
         return success_response(data=record)
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -142,7 +148,7 @@ def notification_counts() -> dict[str, Any]:
         counts = service.get_notification_counts(user=user, company=company)
 
         return success_response(data=counts)
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -159,7 +165,7 @@ def get_unread_count() -> dict[str, Any]:
         count = service.get_unread_count(user=user, company=company)
 
         return success_response(data={"unread_count": count})
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -189,7 +195,7 @@ def mark_notification_read(notification_id: str | None = None) -> dict[str, Any]
         record = service.mark_notification_read(notification_id=target_id, user=user, company=company)
 
         return success_response(data=record, message="Notification marked as read.")
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -216,7 +222,7 @@ def mark_all_notifications_read() -> dict[str, Any]:
             data={"marked_count": count},
             message=f"{count} notification(s) marked as read.",
         )
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -248,7 +254,7 @@ def delete_notification(notification_id: str | None = None) -> dict[str, Any]:
         service.delete_notification(notification_id=target_id, user=user, company=company)
 
         return success_response(message=f"Notification '{target_id}' deleted successfully.")
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -272,7 +278,7 @@ def clear_notifications() -> dict[str, Any]:
             data={"cleared_count": count},
             message=f"Cleared {count} notification(s).",
         )
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -294,7 +300,7 @@ def notification_preferences() -> dict[str, Any]:
         prefs = service.get_notification_preferences(user=user, company=company)
 
         return success_response(data=prefs)
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -333,7 +339,7 @@ def update_notification_preferences() -> dict[str, Any]:
         )
 
         return success_response(data=updated, message="Notification preferences updated successfully.")
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -363,7 +369,7 @@ def create_notification() -> dict[str, Any]:
         )
 
         return success_response(data=created, message="Notification created successfully.")
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)
 
 
@@ -403,5 +409,5 @@ def bulk_update_notifications() -> dict[str, Any]:
             data={"processed_count": processed_count},
             message=f"Bulk action '{action}' performed on {processed_count} notifications.",
         )
-    except ATSException as exc:
+    except Exception as exc:
         return _handle_ats_exception(exc)

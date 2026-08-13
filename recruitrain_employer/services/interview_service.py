@@ -38,6 +38,7 @@ from recruitrain_employer.utils.permissions import (
     get_current_company,
     is_company_member,
 )
+from recruitrain_employer.utils.activity_logger import log_activity
 from recruitrain_employer.validators.interview_validator import (
     ALLOWED_INTERVIEW_STATUSES,
     InterviewValidator,
@@ -115,21 +116,40 @@ class InterviewService:
 
     def create_interview(self, data: dict) -> dict:
         """Create a new Interview record."""
-        self._validator.validate_create(data)
+        if not data or not isinstance(data, dict):
+            raise ATSValidationError("Input data must be a dictionary.", field="data")
 
-        # Derive parent fields from Job Application if omitted
+        if not data.get("job_application"):
+            raise ATSValidationError("job_application is required.", field="job_application")
+
+        # Derive parent fields from Job Application and enforce referential consistency
         app_doc = frappe.get_doc(DOCTYPE_JOB_APPLICATION, data["job_application"])
-        candidate = data.get("candidate") or app_doc.candidate
-        job_opening = data.get("job_opening") or app_doc.job_opening
-        company = data.get("company") or app_doc.company
+        
+        # Enforce Company Scoping against Job Application's company
+        self._assert_company_access(app_doc.company)
 
-        # Enforce Company Scoping
-        self._assert_company_access(company)
+        # Validate candidate consistency if explicitly provided
+        if data.get("candidate") and str(data["candidate"]) != str(app_doc.candidate):
+            raise ATSValidationError(
+                f"Candidate '{data['candidate']}' does not match Job Application candidate '{app_doc.candidate}'.",
+                field="candidate",
+                details={"provided_candidate": data["candidate"], "app_candidate": app_doc.candidate},
+            )
+
+        # Validate job_opening consistency if explicitly provided
+        if data.get("job_opening") and str(data["job_opening"]) != str(app_doc.job_opening):
+            raise ATSValidationError(
+                f"Job Opening '{data['job_opening']}' does not match Job Application job opening '{app_doc.job_opening}'.",
+                field="job_opening",
+                details={"provided_job_opening": data["job_opening"], "app_job_opening": app_doc.job_opening},
+            )
 
         interview_data = dict(data)
-        interview_data["candidate"] = candidate
-        interview_data["job_opening"] = job_opening
-        interview_data["company"] = company
+        interview_data["candidate"] = app_doc.candidate
+        interview_data["job_opening"] = app_doc.job_opening
+        interview_data["company"] = app_doc.company
+
+        self._validator.validate_create(interview_data)
 
         if not interview_data.get("status"):
             interview_data["status"] = "Scheduled"
@@ -146,6 +166,17 @@ class InterviewService:
                 f"Interview conflict during creation.",
                 details={"interview_name": interview_data.get("interview_name")},
             ) from exc
+
+        log_activity(
+            activity_type="Interview Scheduled",
+            description=f"Interview {doc.name} ({doc.interview_type}) scheduled for candidate {doc.candidate}.",
+            reference_doctype="Interview",
+            reference_name=doc.name,
+            candidate=doc.candidate,
+            job_opening=doc.job_opening,
+            job_application=doc.job_application,
+            company=doc.company,
+        )
 
         self._notify(
             title="Interview Scheduled",

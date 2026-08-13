@@ -24,22 +24,24 @@ STATUS_CODE_MAP: dict[str, int] = {
     "PERMISSION_DENIED": 403,
     "NOT_FOUND": 404,
     "CONFLICT": 409,
+    "PLAN_LIMIT_EXCEEDED": 402,
+    "SUBSCRIPTION_EXPIRED": 402,
     "INTERNAL_ERROR": 500,
 }
 
 
-def success_response(data: Any = None, message: str = "") -> dict:
+def success_response(data: Any = None, message: str = "", meta: dict | None = None) -> dict:
     """Build a standardised success response envelope."""
     if hasattr(frappe, "response"):
         frappe.response["http_status_code"] = 200
 
-    response: dict[str, Any] = {
+    return {
         "success": True,
-        "data": data,
+        "data": data if data is not None else {},
+        "message": message or "",
+        "error": None,
+        "meta": meta or {},
     }
-    if message:
-        response["message"] = message
-    return response
 
 
 def error_response(code: str, message: str, details: Any = None, http_status_code: int | None = None) -> dict:
@@ -57,7 +59,10 @@ def error_response(code: str, message: str, details: Any = None, http_status_cod
 
     return {
         "success": False,
+        "data": None,
+        "message": message or "",
         "error": error_body,
+        "meta": {},
     }
 
 
@@ -78,23 +83,24 @@ def paginated_response(
     calc_total_pages = math.ceil(total / page_size) if page_size > 0 else 0
     t_pages = total_pages if total_pages is not None else calc_total_pages
 
-    res: dict[str, Any] = {
+    meta_dict = {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": t_pages,
+    }
+
+    return {
         "success": True,
         "data": items_list,
+        "message": message or "",
+        "error": None,
         "total": total,
         "page": page,
         "page_size": page_size,
         "total_pages": t_pages,
-        "meta": {
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "total_pages": t_pages,
-        },
+        "meta": meta_dict,
     }
-    if message:
-        res["message"] = message
-    return res
 
 
 def not_found_response(doctype: str, name: str) -> dict:

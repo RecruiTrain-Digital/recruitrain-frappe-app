@@ -79,13 +79,22 @@ ALLOWED_APPLICATION_STATUSES: list[str] = [
     "Applied",
     "Screening",
     "Shortlisted",
+    "Interview",
     "Interview Scheduled",
     "Interviewed",
+    "Technical",
+    "HR",
+    "Offered",
     "Offer Extended",
     "Hired",
     "Rejected",
     "Withdrawn",
+    "Open",
+    "Closed",
 ]
+
+TERMINAL_STAGES: frozenset[str] = frozenset(["Hired", "Rejected", "Withdrawn"])
+
 
 # ---------------------------------------------------------------------------
 # Field Allowlists
@@ -333,9 +342,6 @@ class JobApplicationValidator:
     def validate_status(self, status: str) -> None:
         """Assert that ``status`` is in ``ALLOWED_APPLICATION_STATUSES``.
 
-        No workflow transition rules are enforced in this sprint.  Only
-        membership in the allowed list is checked.
-
         Parameters
         ----------
         status : str
@@ -353,6 +359,31 @@ class JobApplicationValidator:
                 field="status",
                 details={"allowed_statuses": ALLOWED_APPLICATION_STATUSES},
             )
+
+    def validate_status_transition(self, current_stage: str | None, new_stage: str) -> None:
+        """Assert that transition from current_stage to new_stage is legal.
+
+        Parameters
+        ----------
+        current_stage : str or None
+            Current application stage/status.
+        new_stage : str
+            Target application stage/status.
+
+        Raises
+        ------
+        ATSValidationError
+            If target stage is invalid or transition out of terminal state is attempted.
+        """
+        self.validate_status(new_stage)
+
+        if current_stage and current_stage in TERMINAL_STAGES and new_stage != current_stage:
+            raise ATSValidationError(
+                f"Cannot transition application from terminal stage '{current_stage}' to '{new_stage}'.",
+                field="new_stage",
+                details={"current_stage": current_stage, "new_stage": new_stage},
+            )
+
 
     def validate_application_date(self, value: Any) -> None:
         """Assert that ``application_date`` is a parseable date value.

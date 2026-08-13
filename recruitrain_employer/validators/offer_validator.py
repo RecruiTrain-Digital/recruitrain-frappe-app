@@ -33,6 +33,8 @@ from recruitrain_employer.utils.exceptions import ATSValidationError
 
 ALLOWED_OFFER_STATUSES: list[str] = [
     "Draft",
+    "Pending Approval",
+    "Approved",
     "Sent",
     "Accepted",
     "Rejected",
@@ -249,6 +251,31 @@ class OfferValidator:
                 f"'{status}' is not a valid offer status. Allowed values: {', '.join(ALLOWED_OFFER_STATUSES)}.",
                 field="offer_status",
                 details={"allowed_statuses": ALLOWED_OFFER_STATUSES},
+            )
+
+    def validate_status_transition(self, current_status: str, new_status: str) -> None:
+        """Validate FSM transition rules for offer state machine."""
+        self.validate_status(new_status)
+        if current_status == new_status:
+            return
+
+        valid_transitions = {
+            "Draft": ["Pending Approval", "Approved", "Sent", "Withdrawn"],
+            "Pending Approval": ["Approved", "Rejected", "Withdrawn", "Draft"],
+            "Approved": ["Sent", "Withdrawn", "Draft"],
+            "Sent": ["Accepted", "Rejected", "Withdrawn", "Expired"],
+            "Accepted": ["Withdrawn"],
+            "Rejected": [],
+            "Withdrawn": [],
+            "Expired": ["Sent", "Withdrawn"],
+        }
+
+        allowed = valid_transitions.get(current_status, [])
+        if new_status not in allowed:
+            raise ATSValidationError(
+                f"Cannot transition Offer status from '{current_status}' to '{new_status}'. Allowed transitions: {', '.join(allowed) if allowed else 'None (Terminal state)'}.",
+                field="offer_status",
+                details={"current_status": current_status, "new_status": new_status, "allowed_transitions": allowed},
             )
 
     @staticmethod

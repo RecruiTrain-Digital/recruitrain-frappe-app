@@ -40,6 +40,7 @@ from recruitrain_employer.utils.permissions import (
     get_current_company,
     is_company_member,
 )
+from recruitrain_employer.utils.activity_logger import log_activity
 from recruitrain_employer.validators.offer_validator import (
     ALLOWED_OFFER_STATUSES,
     OfferValidator,
@@ -139,12 +140,41 @@ class OfferService:
 
         if job_app_id:
             app_doc = frappe.get_doc(DOCTYPE_JOB_APPLICATION, job_app_id)
-            if not payload.get("candidate"):
-                payload["candidate"] = app_doc.candidate
-            if not payload.get("job_opening"):
-                payload["job_opening"] = app_doc.job_opening
+            self._assert_company_access(app_doc.company)
+
+            if payload.get("candidate") and str(payload["candidate"]) != str(app_doc.candidate):
+                raise ATSValidationError(
+                    f"Candidate '{payload['candidate']}' does not match Job Application candidate '{app_doc.candidate}'.",
+                    field="candidate",
+                    details={"provided_candidate": payload["candidate"], "app_candidate": app_doc.candidate},
+                )
+
+            if payload.get("job_opening") and str(payload["job_opening"]) != str(app_doc.job_opening):
+                raise ATSValidationError(
+                    f"Job Opening '{payload['job_opening']}' does not match Job Application job opening '{app_doc.job_opening}'.",
+                    field="job_opening",
+                    details={"provided_job_opening": payload["job_opening"], "app_job_opening": app_doc.job_opening},
+                )
+
+            if payload.get("company") and str(payload["company"]) != str(app_doc.company):
+                raise ATSValidationError(
+                    f"Company '{payload['company']}' does not match Job Application company '{app_doc.company}'.",
+                    field="company",
+                    details={"provided_company": payload["company"], "app_company": app_doc.company},
+                )
+
+            payload["candidate"] = app_doc.candidate
+            payload["job_opening"] = app_doc.job_opening
+            payload["company"] = app_doc.company
+        else:
+            current_comp = get_current_company()
+            if payload.get("company") and str(payload["company"]) != str(current_comp) and getattr(frappe.session, "user", "") != "Administrator":
+                raise ATSPermissionError(
+                    f"Cross-company access prohibited. Record belongs to '{payload['company']}', active user belongs to '{current_comp}'.",
+                    details={"record_company": payload["company"], "user_company": current_comp},
+                )
             if not payload.get("company"):
-                payload["company"] = app_doc.company
+                payload["company"] = current_comp
 
         # Enforce Company Scoping
         self._assert_company_access(payload.get("company"))
@@ -167,6 +197,17 @@ class OfferService:
                 f"Offer conflict during creation.",
                 details={"offer_name": payload.get("offer_name")},
             ) from exc
+
+        log_activity(
+            activity_type="Offer Sent" if doc.offer_status == "Sent" else "Other",
+            description=f"Offer {doc.name} (Status: {doc.offer_status}) created for candidate {doc.candidate}.",
+            reference_doctype="Offer",
+            reference_name=doc.name,
+            candidate=doc.candidate,
+            job_opening=doc.job_opening,
+            job_application=doc.job_application,
+            company=doc.company,
+        )
 
         self._notify(
             title="New Offer Drafted",
@@ -294,8 +335,15 @@ class OfferService:
         term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        # Fix Priority 4: Ensure db.count uses both filters and or_filters
-        total = frappe.db.count(DOCTYPE_OFFER, filters=orm_filters, or_filters=or_filters)
+        total = len(
+            frappe.get_list(
+                DOCTYPE_OFFER,
+                filters=orm_filters,
+                or_filters=or_filters,
+                fields=["name"],
+                ignore_permissions=True,
+            )
+        )
 
         records = frappe.get_list(
             DOCTYPE_OFFER,
@@ -323,9 +371,9 @@ class OfferService:
         if not new_status:
             raise ATSValidationError("new_status is required.", field="new_status")
 
-        self._validator.validate_status(new_status)
         doc = self._get_or_raise(offer_id)
         self._assert_company_access(doc.company)
+        self._validator.validate_status_transition(doc.offer_status or "Draft", new_status)
 
         frappe.db.set_value(
             DOCTYPE_OFFER,
@@ -336,6 +384,18 @@ class OfferService:
         )
 
         doc.reload()
+
+        act_type = "Offer Sent" if new_status == "Sent" else ("Offer Accepted" if new_status == "Accepted" else ("Offer Rejected" if new_status == "Rejected" else "Status Changed"))
+        log_activity(
+            activity_type=act_type,
+            description=f"Offer {doc.name} status updated to '{new_status}'.",
+            reference_doctype="Offer",
+            reference_name=doc.name,
+            candidate=doc.candidate,
+            job_opening=doc.job_opening,
+            job_application=doc.job_application,
+            company=doc.company,
+        )
 
         self._notify(
             title="Offer Status Updated",
@@ -412,7 +472,7 @@ class OfferService:
         if not job_application_id:
             return
 
-        active_statuses = ["Draft", "Sent", "Accepted"]
+        active_statuses = ["Draft", "Pending Approval", "Approved", "Sent", "Accepted"]
         existing = frappe.get_all(
             DOCTYPE_OFFER,
             filters={

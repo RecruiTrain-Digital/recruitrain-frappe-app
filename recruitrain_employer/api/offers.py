@@ -26,12 +26,27 @@ from recruitrain_employer.utils.response import (
 )
 
 
-def _handle_ats_exception(exc: ATSException) -> dict:
-    """Translate an ATSException into a standardised error response dict."""
+def _handle_ats_exception(exc: Exception) -> dict:
+    """Translate an ATSException or Frappe Exception into a standardised error response dict."""
+    if isinstance(exc, (frappe.exceptions.DuplicateEntryError, frappe.exceptions.TimestampMismatchError)):
+        msg = "This record has been modified by another user. Please reload and try again." if isinstance(exc, frappe.exceptions.TimestampMismatchError) else str(exc)
+        return error_response(
+            code="CONFLICT",
+            message=msg,
+            http_status_code=409,
+        )
+    if isinstance(exc, ATSException):
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+            http_status_code=400 if exc.code == "VALIDATION_ERROR" else 404 if exc.code == "NOT_FOUND" else 403 if exc.code == "PERMISSION_DENIED" else 409 if exc.code == "CONFLICT" else 400,
+        )
     return error_response(
-        code=exc.code,
-        message=exc.message,
-        details=exc.details,
+        code="INTERNAL_SERVER_ERROR",
+        message="An error occurred while processing offer request.",
+        details={"error": str(exc)},
+        http_status_code=500,
     )
 
 
@@ -127,6 +142,39 @@ def change_status(offer_id: str | None = None, new_status: str | None = None) ->
         )
     except ATSException as exc:
         return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def send_offer(offer_id: str | None = None) -> dict:
+    """Send an Offer to candidate."""
+    target_id = offer_id or frappe.form_dict.get("offer_id") or frappe.form_dict.get("name")
+    return change_status(offer_id=target_id, new_status="Sent")
+
+
+@frappe.whitelist()
+@employer_required
+def accept_offer(offer_id: str | None = None) -> dict:
+    """Accept an Offer."""
+    target_id = offer_id or frappe.form_dict.get("offer_id") or frappe.form_dict.get("name")
+    return change_status(offer_id=target_id, new_status="Accepted")
+
+
+@frappe.whitelist()
+@employer_required
+def reject_offer(offer_id: str | None = None) -> dict:
+    """Reject an Offer."""
+    target_id = offer_id or frappe.form_dict.get("offer_id") or frappe.form_dict.get("name")
+    return change_status(offer_id=target_id, new_status="Rejected")
+
+
+@frappe.whitelist()
+@employer_required
+def withdraw_offer(offer_id: str | None = None) -> dict:
+    """Withdraw an Offer."""
+    target_id = offer_id or frappe.form_dict.get("offer_id") or frappe.form_dict.get("name")
+    return change_status(offer_id=target_id, new_status="Withdrawn")
+
 
 
 # ---------------------------------------------------------------------------

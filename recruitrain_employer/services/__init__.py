@@ -24,8 +24,7 @@ Package Layout
 - offer_service.py         Offer generation, sending, and response tracking
 - dashboard_service.py     Aggregated metrics and reporting queries
 - notification_service.py  Notification delivery and preference management
-- settings_service.py      Employer Settings orchestrator (general, branding,
-                           notification, security, recruitment, integration, audit)
+- subscription_service.py   Subscription and entitlement management (quotas, usage, plan limits)
 
 Design Principles
 -----------------
@@ -40,3 +39,9 @@ Design Principles
 4. Services SHOULD be instantiated per-request (stateless) unless a compelling
    reason for caching exists.
 """
+
+from recruitrain_employer.services.subscription_service import SubscriptionService, check_plan_limit
+from recruitrain_employer.services.webhook_service import WebhookService
+
+__all__ = ["SubscriptionService", "check_plan_limit", "WebhookService"]
+

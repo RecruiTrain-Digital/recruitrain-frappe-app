@@ -275,3 +275,48 @@ class ATSServiceError(ATSException):
     """
 
     code = "INTERNAL_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Subscription & Quota Errors
+# ---------------------------------------------------------------------------
+
+
+class PlanLimitExceededError(ATSException):
+    """Raised when a company exceeds its subscription plan quota or resource limit."""
+
+    code = "PLAN_LIMIT_EXCEEDED"
+
+    def __init__(
+        self,
+        message: str = "Plan limit exceeded.",
+        resource: str | None = None,
+        limit: Any = None,
+        current: Any = None,
+        details: Any = None,
+    ) -> None:
+        super().__init__(message, code="PLAN_LIMIT_EXCEEDED", details=details)
+        self.resource = resource
+        self.limit = limit
+        self.current = current
+        if (resource or limit is not None or current is not None) and not details:
+            self.details = {
+                "resource": resource,
+                "limit": limit,
+                "current": current,
+            }
+
+
+class SubscriptionExpiredError(ATSException):
+    """Raised when a company subscription is inactive, cancelled, or expired."""
+
+    code = "SUBSCRIPTION_EXPIRED"
+
+    def __init__(self, message: str = "Subscription is inactive or expired.", details: Any = None) -> None:
+        super().__init__(message, code="SUBSCRIPTION_EXPIRED", details=details)
+
+
+# Aliases for consistency across codebase conventions
+ATSPlanLimitExceededError = PlanLimitExceededError
+ATSSubscriptionExpiredError = SubscriptionExpiredError
+

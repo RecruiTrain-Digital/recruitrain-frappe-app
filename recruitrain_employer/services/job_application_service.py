@@ -97,14 +97,19 @@ from recruitrain_employer.utils.constants import (
     MAX_PAGE_SIZE,
 )
 from recruitrain_employer.utils.exceptions import (
+    ATSCompanyNotFoundError,
     ATSConflictError,
     ATSNotFoundError,
+    ATSPermissionError,
     ATSValidationError,
 )
+from recruitrain_employer.utils.activity_logger import log_activity
+from recruitrain_employer.utils.permissions import get_current_company
 from recruitrain_employer.validators.job_application_validator import (
     ALLOWED_APPLICATION_STATUSES,
     JobApplicationValidator,
 )
+
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +138,6 @@ ALLOWED_SORT_FIELDS: frozenset[str] = frozenset(
         "job_opening",
         "company",
         "status",
-        "application_date",
         "applied_on",
     ]
 )
@@ -165,7 +169,6 @@ _LIST_FIELDS: list[str] = [
     "company",
     "status",
     "current_stage",
-    "application_date",
     "applied_on",
 ]
 
@@ -210,7 +213,7 @@ class JobApplicationService:
         Parameters
         ----------
         data : dict
-            Job Application field values.  Must include at a minimum
+            Job Application field values. Must include at a minimum
             ``job_opening`` and ``candidate``.
 
         Returns
@@ -226,13 +229,46 @@ class JobApplicationService:
         ATSConflictError
             If a Job Application for the same ``(candidate, job_opening)``
             pair already exists.
-
-        TODO: Log application creation to Activity Log via ActivityLogService.
-        TODO: Notify employer team of new application via NotificationService.
+        ATSPermissionError
+            If caller attempts cross-company creation.
         """
         payload = dict(data)
         self._validator.validate_create(payload)
-        self._assert_unique_application(payload["candidate"], payload["job_opening"])
+
+        candidate_id = payload["candidate"]
+        job_id = payload["job_opening"]
+
+        cand_doc = frappe.get_doc("Candidate", candidate_id)
+        job_doc = frappe.get_doc("Job Opening", job_id)
+
+        cand_company = getattr(cand_doc, "company", None)
+        job_company = getattr(job_doc, "company", None)
+
+        if cand_company and job_company and str(cand_company) != str(job_company):
+            raise ATSValidationError(
+                f"Candidate '{candidate_id}' belongs to company '{cand_company}', which does not match Job Opening '{job_id}' company '{job_company}'.",
+                details={"candidate_company": cand_company, "job_company": job_company},
+            )
+
+        target_company = job_company or cand_company or get_current_company()
+
+        user = getattr(frappe.session, "user", None)
+        if user != "Administrator":
+            current_comp = get_current_company()
+            if target_company != current_comp:
+                raise ATSPermissionError(
+                    f"Cross-company access prohibited. Entity belongs to '{target_company}', active user belongs to '{current_comp}'.",
+                    details={"record_company": target_company, "user_company": current_comp},
+                )
+            if payload.get("company") and str(payload["company"]) != str(target_company):
+                raise ATSPermissionError(
+                    f"Provided company '{payload['company']}' does not match entity company '{target_company}'.",
+                    details={"provided_company": payload["company"], "authoritative_company": target_company},
+                )
+
+        payload["company"] = target_company
+        self._assert_company_access(target_company)
+        self._assert_unique_application(candidate_id, job_id)
 
         applied_on_val = payload.get("applied_on") or payload.get("application_date")
         if not applied_on_val:
@@ -246,7 +282,17 @@ class JobApplicationService:
         payload["applied_on"] = applied_on_val
         payload["application_date"] = applied_on_val
 
+        if not payload.get("source"):
+            payload["source"] = "Manual"
+        if not payload.get("resume"):
+            payload["resume"] = "/files/resume_placeholder.pdf"
+        if not payload.get("current_stage"):
+            payload["current_stage"] = "Applied"
+        if not payload.get("status"):
+            payload["status"] = "Open"
+
         doc = frappe.new_doc(DOCTYPE_JOB_APPLICATION)
+
         self._apply_changed_fields(doc, payload)
         if not doc.get("applied_on"):
             doc.applied_on = applied_on_val
@@ -258,6 +304,19 @@ class JobApplicationService:
                 f"A Job Application for candidate '{data.get('candidate')}' and job opening '{data.get('job_opening')}' already exists.",
                 details={"candidate": data.get("candidate"), "job_opening": data.get("job_opening")},
             ) from exc
+
+        self._sync_legacy_candidate_fields(doc)
+
+        log_activity(
+            activity_type="Application Submitted",
+            description=f"Application {doc.name} submitted for candidate {doc.candidate} on job {doc.job_opening}.",
+            reference_doctype="Job Application",
+            reference_name=doc.name,
+            candidate=doc.candidate,
+            job_opening=doc.job_opening,
+            job_application=doc.name,
+            company=doc.company,
+        )
 
         self._notify(
             title="New Candidate Applied",
@@ -274,81 +333,31 @@ class JobApplicationService:
 
 
     def get_application(self, application_id: str) -> dict:
-        """Retrieve a full Job Application record by ID.
-
-        Parameters
-        ----------
-        application_id : str
-            The ``name`` (primary key) of the Job Application record.
-
-        Returns
-        -------
-        dict
-            The Job Application document serialised by
-            ``_serialize_application()``.  Only business-facing fields are
-            included; Frappe metadata is excluded by the serialiser.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``application_id`` is empty.
-        ATSNotFoundError
-            If no Job Application with the given ID exists.
-
-        TODO: Attach interview history once Interview sprint is implemented.
-        TODO: Attach candidate snapshot (name, email, phone) for convenience.
-        """
+        """Retrieve a full Job Application record by ID."""
         if not application_id:
             raise ATSValidationError(
                 "application_id is required.", field="application_id"
             )
 
         doc = self._get_or_raise(application_id)
+        self._assert_company_access(doc.company)
         return self._serialize_application(doc, fields=_DETAIL_FIELDS)
 
     def update_application(self, application_id: str, data: dict) -> dict:
-        """Apply a partial update to an existing Job Application record.
-
-        Only fields whose values have **changed** from the current document
-        are written.  Identical values are skipped, preventing unnecessary
-        dirty-field tracking.
-
-        Parameters
-        ----------
-        application_id : str
-            The ``name`` of the Job Application to update.
-        data : dict
-            Partial Job Application fields to apply.  Only fields in
-            ``APPLICATION_UPDATABLE_FIELDS`` are accepted.
-            ``candidate`` and ``job_opening`` are immutable after creation.
-
-        Returns
-        -------
-        dict
-            The updated Job Application document serialised by
-            ``_serialize_application()``.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``application_id`` is empty, ``data`` is empty, or any field
-            is not updatable.
-        ATSNotFoundError
-            If no Job Application with the given ID exists.
-
-        TODO: Pass ``changed_fields`` to ActivityLogService once implemented.
-        """
+        """Apply a partial update to an existing Job Application record."""
         if not application_id:
             raise ATSValidationError(
                 "application_id is required.", field="application_id"
             )
 
         self._validator.validate_update(data)
-
         doc = self._get_or_raise(application_id)
+        self._assert_company_access(doc.company)
 
-        # Apply only changed fields; the returned dict is ready for the
-        # Activity Log in a future sprint.
+        new_st = data.get("current_stage") or data.get("status")
+        if new_st:
+            self._validator.validate_status_transition(doc.current_stage or doc.status, new_st)
+
         changed_fields = self._apply_changed_fields(doc, data)
 
         if changed_fields:
@@ -359,60 +368,64 @@ class JobApplicationService:
                     f"Job Application conflict during update.",
                     details={"application_id": application_id},
                 ) from exc
-            # TODO: Log changed_fields to Activity Log via ActivityLogService.
 
         return self._serialize_application(doc, fields=_DETAIL_FIELDS)
 
-    # TODO: Replace hard delete with an archive workflow during the Application
-    #       Lifecycle sprint.  Most ATS systems never permanently delete
-    #       applications to preserve historical records.
     def delete_application(self, application_id: str) -> None:
-        """Permanently delete a Job Application record.
-
-        Performs a safe delete — if Frappe detects linked records that
-        prevent deletion, an ``ATSConflictError`` is raised with a
-        user-friendly message instead of exposing the raw Frappe exception.
-
-        Parameters
-        ----------
-        application_id : str
-            The ``name`` of the Job Application to delete.
-
-        Raises
-        ------
-        ATSValidationError
-            If ``application_id`` is empty.
-        ATSNotFoundError
-            If no Job Application with the given ID exists.
-        ATSConflictError
-            If the Job Application has linked records that prevent deletion
-            (e.g. Interviews, Offers).
-
-        TODO: Replace hard delete with archive workflow in Application Lifecycle sprint.
-        TODO: Log deletion to Activity Log via ActivityLogService.
-        """
+        """Permanently delete a Job Application record safely."""
         if not application_id:
             raise ATSValidationError(
                 "application_id is required.", field="application_id"
             )
 
-        # Confirm existence before attempting delete.
-        self._get_or_raise(application_id)
+        doc = self._get_or_raise(application_id)
+        self._assert_company_access(doc.company)
+
+        blocking_links: dict[str, int] = {}
+        for doctype, key in [
+            ("Interview", "interviews"),
+            ("Interview Feedback", "interview_feedback"),
+            ("Offer", "offers"),
+        ]:
+            if frappe.db.table_exists(doctype):
+                try:
+                    if frappe.db.has_column(f"tab{doctype}", "job_application"):
+                        cnt = frappe.db.count(doctype, {"job_application": application_id})
+                        if cnt > 0:
+                            blocking_links[key] = cnt
+                except Exception:
+                    pass
+
+        if blocking_links:
+            parts = [f"{cnt} {dt.replace('_', ' ')}" for dt, cnt in blocking_links.items()]
+            summary = ", ".join(parts)
+            raise ATSConflictError(
+                f"Job Application '{application_id}' cannot be deleted because it has linked recruitment records: {summary}.",
+                details={
+                    "application_id": application_id,
+                    "error_code": "JOB_APPLICATION_HAS_RECRUITMENT_HISTORY",
+                    "blocking_links": blocking_links,
+                },
+            )
+
+        if frappe.db.table_exists("Activity Logs"):
+            frappe.db.delete("Activity Logs", {"job_application": application_id})
 
         try:
             frappe.delete_doc(
                 DOCTYPE_JOB_APPLICATION,
                 application_id,
                 ignore_permissions=True,
-                force=False,  # Respect Frappe's link-existence checks.
+                force=False,
             )
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Job Application '{application_id}' cannot be deleted because "
                 "it is referenced by one or more linked records (e.g. Interviews, "
                 "Offers). Please resolve those references first.",
-                details={"application_id": application_id},
+                details={"application_id": application_id, "error_code": "JOB_APPLICATION_HAS_RECRUITMENT_HISTORY"},
             ) from exc
+
 
     def list_applications(
         self,
@@ -452,8 +465,6 @@ class JobApplicationService:
         dict
             ``{ "data": list[dict], "total": int, "page": int, "page_size": int }``
 
-        TODO: Add employer-scoped filtering once Employer–Company linking is defined.
-        TODO: Add date-range filtering (application_date_from, application_date_to).
         """
         page, page_size = self._sanitise_pagination(page, page_size)
         order_clause = self._sanitise_order_by(order_by, order_dir)
@@ -520,7 +531,6 @@ class JobApplicationService:
         dict
             ``{ "data": list[dict], "total": int, "page": int, "page_size": int }``
 
-        TODO: Upgrade to full-text search index once data volume warrants it.
         """
         if not search or not search.strip():
             raise ATSValidationError("Search term is required.", field="search")
@@ -532,9 +542,34 @@ class JobApplicationService:
         # Escape wildcard characters (% and _) to prevent search injection.
         escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         term = f"%{escaped_search}%"
-        or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        total = frappe.db.count(DOCTYPE_JOB_APPLICATION, filters=orm_filters, or_filters=or_filters)
+        cand_ids = frappe.get_all(
+            "Candidate",
+            filters=[["candidate_name", "like", term]],
+            or_filters=[
+                ["email", "like", term],
+                ["first_name", "like", term],
+                ["last_name", "like", term],
+            ],
+            pluck="name",
+            ignore_permissions=True,
+        )
+
+        job_ids = frappe.get_all(
+            "Job Opening",
+            filters=[["job_title", "like", term]],
+            or_filters=[["job_code", "like", term]],
+            pluck="name",
+            ignore_permissions=True,
+        )
+
+        or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
+        if cand_ids:
+            or_filters.append(["candidate", "in", cand_ids])
+        if job_ids:
+            or_filters.append(["job_opening", "in", job_ids])
+
+        total = len(frappe.get_all(DOCTYPE_JOB_APPLICATION, filters=orm_filters, or_filters=or_filters, pluck="name", ignore_permissions=True))
 
         records = frappe.get_list(
             DOCTYPE_JOB_APPLICATION,
@@ -583,10 +618,6 @@ class JobApplicationService:
         ATSNotFoundError
             If no Job Application with the given ID exists.
 
-        TODO: Enforce forward-only transition rules in the Application Lifecycle sprint.
-        TODO: Block transitions from terminal stages (Hired, Rejected, Withdrawn).
-        TODO: Log status change to Activity Log via ActivityLogService.
-        TODO: Send status-change notification to candidate via NotificationService.
         """
         if not application_id:
             raise ATSValidationError(
@@ -603,6 +634,8 @@ class JobApplicationService:
 
         # Confirm the application exists before updating.
         doc = self._get_or_raise(application_id)
+        self._assert_company_access(doc.company)
+        self._validator.validate_status_transition(doc.current_stage or doc.status, new_status)
 
         db_status = new_status if new_status in ["Hired", "Rejected", "Closed", "Open"] else ("Closed" if new_status == "Withdrawn" else "Open")
         frappe.db.set_value(
@@ -616,7 +649,20 @@ class JobApplicationService:
         )
 
 
+
         doc.reload()
+        self._sync_legacy_candidate_fields(doc)
+
+        log_activity(
+            activity_type="Application Stage Changed",
+            description=f"Application {doc.name} stage changed to '{new_status}'.",
+            reference_doctype="Job Application",
+            reference_name=doc.name,
+            candidate=doc.candidate,
+            job_opening=doc.job_opening,
+            job_application=doc.name,
+            company=doc.company,
+        )
 
         self._notify(
             title="Application Status Updated",
@@ -630,6 +676,34 @@ class JobApplicationService:
         )
 
         return self._serialize_application(doc, fields=_DETAIL_FIELDS)
+
+    @staticmethod
+    def _sync_legacy_candidate_fields(doc) -> None:
+        """Synchronize application stage/status back to legacy Candidate status for backward compatibility."""
+        try:
+            if not doc.get("candidate") or not frappe.db.exists("Candidate", doc.candidate):
+                return
+            candidate_doc = frappe.get_doc("Candidate", doc.candidate)
+            stage = doc.get("current_stage") or doc.get("status")
+            status_map = {
+                "Applied": "Active",
+                "Screening": "In Review",
+                "Shortlisted": "In Review",
+                "Interview": "Interviewing",
+                "Technical": "Interviewing",
+                "HR": "Interviewing",
+                "Offered": "Offered",
+                "Hired": "Hired",
+                "Rejected": "Rejected",
+                "Withdrawn": "Archived",
+            }
+            target_status = status_map.get(stage)
+            if target_status and candidate_doc.status != target_status:
+                candidate_doc.status = target_status
+                candidate_doc.flags.ignore_permissions = True
+                candidate_doc.save()
+        except Exception as exc:
+            frappe.logger().error(f"Failed to sync legacy candidate fields: {exc}")
 
     @staticmethod
     def _notify(title: str, message: str, priority: str, category: str, company: str, entity_id: str, action_url: str, action_label: str) -> None:
@@ -689,6 +763,22 @@ class JobApplicationService:
                 name=application_id,
             )
         return frappe.get_doc(DOCTYPE_JOB_APPLICATION, application_id)
+
+    @staticmethod
+    def _assert_company_access(company: str | None) -> None:
+        """Assert user has permission to access records of company."""
+        if not company:
+            return
+        user = getattr(frappe.session, "user", None)
+        if user == "Administrator":
+            return
+        current_comp = get_current_company()
+        if str(company) != str(current_comp):
+            raise ATSPermissionError(
+                f"Cross-company access prohibited. Record belongs to '{company}', active user belongs to '{current_comp}'.",
+                details={"record_company": company, "user_company": current_comp},
+            )
+
 
     def _assert_unique_application(
         self, candidate: str, job_opening: str
@@ -798,10 +888,7 @@ class JobApplicationService:
         Unknown fields (not present as attributes on the document) are
         silently skipped to avoid attribute errors.
 
-        The returned dict is intended for future Activity Log integration::
-
-            changed = self._apply_changed_fields(doc, data)
-            # TODO: ActivityLogService.log_update(application_id, changed)
+        The returned dict contains updated fields.
         """
         changed: dict = {}
         meta = frappe.get_meta(doc.doctype)
@@ -867,26 +954,31 @@ class JobApplicationService:
         """
         orm: dict = {}
 
+        user = getattr(frappe.session, "user", None)
+        if user != "Administrator":
+            orm["company"] = get_current_company()
+        elif filters.get("company"):
+            orm["company"] = filters["company"]
+
         if filters.get("candidate"):
             orm["candidate"] = filters["candidate"]
 
         if filters.get("job_opening"):
             orm["job_opening"] = filters["job_opening"]
 
-        if filters.get("company"):
-            orm["company"] = filters["company"]
-
         if filters.get("status"):
             orm["status"] = filters["status"]
+
+        if filters.get("current_stage"):
+            orm["current_stage"] = filters["current_stage"]
 
         if filters.get("applied_on"):
             orm["applied_on"] = filters["applied_on"]
         elif filters.get("application_date"):
             orm["applied_on" if frappe.get_meta(DOCTYPE_JOB_APPLICATION).has_field("applied_on") else "application_date"] = filters["application_date"]
 
-        # TODO: Add date-range filter (application_date_from / _to) in a future sprint.
-
         return orm
+
 
     @staticmethod
     def _sanitise_pagination(page: int, page_size: int) -> tuple[int, int]:

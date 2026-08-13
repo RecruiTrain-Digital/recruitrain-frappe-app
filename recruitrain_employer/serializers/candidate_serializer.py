@@ -134,7 +134,8 @@ def serialize_candidate(
         serialized["mobile_number"] = serialized["mobile_no"]
         serialized["location"] = serialized["preferred_location"] or location_display
         serialized["salary"] = serialized["current_salary"]
-        serialized["experience"] = serialized["years_of_experience"]
+        if "experience" not in serialized or not isinstance(serialized["experience"], list):
+            serialized["experience"] = serialized["years_of_experience"]
         serialized["total_experience_years"] = serialized["years_of_experience"]
 
     return serialized

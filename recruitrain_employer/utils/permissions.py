@@ -181,7 +181,18 @@ def employer_required(func: Callable) -> Callable:
     """Decorator: ensures the caller is an authenticated Employer User."""
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        get_current_employer_user()
+        try:
+            get_current_employer_user()
+        except (ATSPermissionError, ATSCompanyNotFoundError) as exc:
+            from recruitrain_employer.utils.response import error_response
+            status_code = 401 if (isinstance(exc, ATSPermissionError) or "Authentication" in str(exc) or "log in" in str(exc)) else 403
+            code = "UNAUTHORIZED" if status_code == 401 else getattr(exc, "code", "PERMISSION_DENIED")
+            return error_response(
+                code=code,
+                message=getattr(exc, "message", str(exc)),
+                details=getattr(exc, "details", None),
+                http_status_code=status_code,
+            )
         return func(*args, **kwargs)
     return wrapper
 

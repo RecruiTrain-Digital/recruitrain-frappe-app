@@ -124,7 +124,7 @@
   },
   {
    "fieldname": "job_application",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Job Application",
    "options": "Job Application"
   },

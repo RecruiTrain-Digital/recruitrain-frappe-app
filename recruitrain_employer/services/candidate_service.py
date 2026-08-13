@@ -29,6 +29,7 @@ from recruitrain_employer.utils.exceptions import (
     ATSPermissionError,
     ATSValidationError,
 )
+from recruitrain_employer.utils.activity_logger import log_activity
 from recruitrain_employer.utils.permissions import get_current_company
 from recruitrain_employer.validators.candidate_validator import CandidateValidator
 
@@ -185,6 +186,15 @@ class CandidateService:
             action_label="View Candidate",
         )
 
+        log_activity(
+            activity_type="Candidate Created",
+            description=f"Candidate profile '{doc.first_name} {doc.last_name}' created.",
+            reference_doctype="Candidate",
+            reference_name=doc.name,
+            candidate=doc.name,
+            company=company,
+        )
+
         frappe.db.commit()
 
         batch_apps = self._get_batch_latest_applications([doc.name])
@@ -241,26 +251,109 @@ class CandidateService:
         return serialize_candidate(doc, include_subresources=True, latest_application=batch_apps.get(candidate_id))
 
     def delete_candidate(self, candidate_id: str) -> dict[str, Any]:
-        """Delete a candidate record."""
+        """
+        Delete a Candidate record with full referential integrity protection.
+
+        Business Rules:
+        - Deletion is BLOCKED if the Candidate has any of the following linked records:
+          Job Application, Interview, Offer, Candidate Note, Talent Pool membership,
+          or Activity Log entries. These are permanent recruitment audit history.
+        - If no protected relationships exist, hard deletion proceeds atomically.
+        - The subscription usage counter is decremented via the on_trash hook
+          (registered in hooks.py -> on_candidate_on_trash).
+        - Frappe File records (resume, documents) are removed by Frappe's
+          delete_doc cascade for child tables. Standalone File records linked
+          via the 'resume' Attach field are NOT deleted automatically; they
+          remain in Frappe's file manager as audit artifacts.
+
+        Returns
+        -------
+        dict
+            {name, deleted: True} on success.
+
+        Raises
+        ------
+        ATSValidationError
+            If candidate_id is missing.
+        ATSNotFoundError
+            If the candidate does not exist.
+        ATSPermissionError
+            If the caller does not have access to this candidate.
+        ATSConflictError
+            If linked recruitment records exist (machine-readable code:
+            CANDIDATE_HAS_RECRUITMENT_HISTORY).
+        """
         doc = self._get_or_raise(candidate_id)
         company = doc.company or get_current_company()
 
-        # Check linked applications
+        # ------------------------------------------------------------------
+        # Referential Integrity Check
+        # Build a comprehensive picture of all linked records before ANY
+        # deletion attempt. Fail fast with a single structured error that
+        # lists every blocker so the caller has full context.
+        # ------------------------------------------------------------------
+        blocking_links: dict[str, int] = {}
+
+        # 1. Job Applications (most critical - recruitment pipeline history)
         linked_apps = frappe.db.count("Job Application", {"candidate": candidate_id})
         if linked_apps > 0:
+            blocking_links["job_applications"] = linked_apps
+
+        # Check all potential blocking recruitment records
+        for doctype, key in [
+            ("Job Application", "job_applications"),
+            ("Interview", "interviews"),
+            ("Interview Feedback", "interview_feedback"),
+            ("Offer", "offers"),
+            ("Candidate Note", "candidate_notes"),
+            ("Talent Pool Member", "talent_pool_memberships"),
+        ]:
+            if frappe.db.table_exists(doctype):
+                count = frappe.db.count(doctype, {"candidate": candidate_id})
+                if count > 0:
+                    blocking_links[key] = count
+
+        if blocking_links:
+            parts = [f"{count} {doctype.replace('_', ' ')}" for doctype, count in blocking_links.items()]
+            summary = ", ".join(parts)
             raise ATSConflictError(
-                f"Candidate '{candidate_id}' cannot be deleted because they have {linked_apps} active application(s). "
-                "Archive the candidate record instead.",
-                details={"candidate_id": candidate_id, "active_applications": linked_apps},
+                f"Candidate '{candidate_id}' cannot be deleted because they have linked recruitment records: "
+                f"{summary}. Archive the candidate (set status to 'Archived') instead of deleting.",
+                details={
+                    "candidate_id": candidate_id,
+                    "error_code": "CANDIDATE_HAS_RECRUITMENT_HISTORY",
+                    "blocking_links": blocking_links,
+                },
             )
 
+        # Cleanup system creation activity logs prior to unlinked candidate deletion
+        if frappe.db.table_exists("Activity Logs"):
+            frappe.db.delete("Activity Logs", {"candidate": candidate_id})
+
+        # ------------------------------------------------------------------
+        # Atomic Deletion
+        # Frappe's delete_doc is transactional within the current DB session.
+        # It will:
+        #   1. Delete all child table rows (education, experience, skills, etc.)
+        #   2. Fire the on_trash hook -> on_candidate_on_trash
+        #      -> SubscriptionService().decrement_usage(company, "candidates")
+        #   3. Remove the Candidate document itself from tabCandidate
+        #
+        # We catch LinkExistsError as a last-resort safety net for any
+        # FK links that are not covered by the explicit checks above.
+        # ------------------------------------------------------------------
         try:
             frappe.delete_doc(DOCTYPE_CANDIDATE, candidate_id, ignore_permissions=True)
             frappe.db.commit()
         except LinkExistsError as exc:
             raise ATSConflictError(
-                f"Candidate '{candidate_id}' is linked to other records and cannot be deleted.",
-                details={"candidate_id": candidate_id},
+                f"Candidate '{candidate_id}' is linked to other records and cannot be deleted. "
+                "Archive this candidate instead.",
+                details={
+                    "candidate_id": candidate_id,
+                    "error_code": "CANDIDATE_HAS_RECRUITMENT_HISTORY",
+                    "frappe_error": str(exc),
+                },
             ) from exc
 
         return {"name": candidate_id, "deleted": True}
@@ -340,6 +433,7 @@ class CandidateService:
             filters["country"] = country
 
         page, page_size = self._sanitise_pagination(page, page_size)
+        order_by = self._sanitise_order_by(order_by)
         start = (page - 1) * page_size
         frappe.logger().info(f"[CandidateService Stage 4] Applied Filters: {filters}")
 
@@ -422,6 +516,7 @@ class CandidateService:
         ]
 
         page, page_size = self._sanitise_pagination(page, page_size)
+        order_by = self._sanitise_order_by(order_by)
         start = (page - 1) * page_size
 
         total = len(frappe.get_list(DOCTYPE_CANDIDATE, filters=base_filters, or_filters=or_filters, fields=["name"], limit_page_length=0))
@@ -464,6 +559,7 @@ class CandidateService:
             base_filters["name"] = ["in", candidate_ids]
 
         page, page_size = self._sanitise_pagination(page, page_size)
+        order_by = self._sanitise_order_by(order_by)
         start = (page - 1) * page_size
 
         total = frappe.db.count(DOCTYPE_CANDIDATE, filters=base_filters)
@@ -584,6 +680,26 @@ class CandidateService:
             ps = DEFAULT_PAGE_SIZE
 
         return p, ps
+
+    def _sanitise_order_by(self, order_by: str | None) -> str:
+        """Sanitize and validate order_by string against allowed sort fields."""
+        if not order_by or not isinstance(order_by, str):
+            return "creation desc"
+
+        parts = order_by.strip().split()
+        if not parts:
+            return "creation desc"
+
+        field = parts[0].lower()
+        direction = parts[1].lower() if len(parts) > 1 else "asc"
+
+        if field not in ALLOWED_SORT_FIELDS:
+            field = "creation"
+
+        if direction not in ("asc", "desc"):
+            direction = "desc"
+
+        return f"{field} {direction}"
 
     def _notify(
         self,

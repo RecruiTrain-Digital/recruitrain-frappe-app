@@ -138,13 +138,25 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+    "Job Opening": {
+        "before_insert": "recruitrain_employer.utils.subscription_hooks.on_job_opening_before_insert",
+        "after_insert": "recruitrain_employer.utils.subscription_hooks.on_job_opening_after_insert",
+        "on_update": "recruitrain_employer.utils.subscription_hooks.on_job_opening_on_update",
+        "on_trash": "recruitrain_employer.utils.subscription_hooks.on_job_opening_on_trash",
+    },
+    "Employer User": {
+        "before_insert": "recruitrain_employer.utils.subscription_hooks.on_employer_user_before_insert",
+        "after_insert": "recruitrain_employer.utils.subscription_hooks.on_employer_user_after_insert",
+        "on_update": "recruitrain_employer.utils.subscription_hooks.on_employer_user_on_update",
+        "on_trash": "recruitrain_employer.utils.subscription_hooks.on_employer_user_on_trash",
+    },
+    "Candidate": {
+        "before_insert": "recruitrain_employer.utils.subscription_hooks.on_candidate_before_insert",
+        "after_insert": "recruitrain_employer.utils.subscription_hooks.on_candidate_after_insert",
+        "on_trash": "recruitrain_employer.utils.subscription_hooks.on_candidate_on_trash",
+    },
+}
 
 # Scheduled Tasks
 # ---------------
@@ -234,6 +246,8 @@ scheduler_events = {
 
 # Authentication and authorization
 # --------------------------------
+
+on_login = "recruitrain_employer.utils.login_audit.on_login_handler"
 
 # auth_hooks = [
 # 	"recruitrain_employer.auth.validate"

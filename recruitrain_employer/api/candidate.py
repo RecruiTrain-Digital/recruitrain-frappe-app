@@ -80,9 +80,11 @@ def _handle_ats_exception(exc: Exception) -> dict[str, Any]:
             http_status_code=404,
         )
 
-    # 4. Conflict Errors -> HTTP 409
-    if isinstance(exc, (ATSConflictError, FrappeDuplicateEntryError)):
+    # 4. Conflict Errors / Concurrent Edits -> HTTP 409
+    if isinstance(exc, (ATSConflictError, FrappeDuplicateEntryError, frappe.exceptions.TimestampMismatchError)):
         msg = getattr(exc, "message", None) or str(exc)
+        if isinstance(exc, frappe.exceptions.TimestampMismatchError):
+            msg = "This record has been modified by another user. Please reload and try again."
         details = getattr(exc, "details", None) or {"error": str(exc)}
         return error_response(
             code="CONFLICT",

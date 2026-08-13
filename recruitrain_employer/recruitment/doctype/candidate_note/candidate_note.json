@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:NOTE-{####}",
+ "creation": "2026-08-06 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "candidate",
+  "job_application",
+  "company",
+  "author",
+  "author_name",
+  "content",
+  "is_pinned",
+  "is_private",
+  "mentions"
+ ],
+ "fields": [
+  {
+   "fieldname": "candidate",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Candidate",
+   "options": "Candidate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "job_application",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Job Application",
+   "options": "Job Application"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "author",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Author",
+   "reqd": 1
+  },
+  {
+   "fieldname": "author_name",
+   "fieldtype": "Data",
+   "label": "Author Name"
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Text Editor",
+   "label": "Note Content",
+   "reqd": 1
+  },
+  {
+   "fieldname": "is_pinned",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Pinned",
+   "default": "0"
+  },
+  {
+   "fieldname": "is_private",
+   "fieldtype": "Check",
+   "label": "Is Private Note",
+   "default": "0"
+  },
+  {
+   "fieldname": "mentions",
+   "fieldtype": "Small Text",
+   "label": "User Mentions (JSON)"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Candidate Note",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "All",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

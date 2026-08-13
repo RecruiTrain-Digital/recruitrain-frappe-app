@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:POOL-{company}-{####}",
+ "creation": "2026-08-06 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "pool_name",
+  "company",
+  "category",
+  "description",
+  "members_section",
+  "members"
+ ],
+ "fields": [
+  {
+   "fieldname": "pool_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Pool Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Silver Medalists\nFuture Hiring\nCampus\nReferral\nInternal\nCustom",
+   "default": "Custom"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "members_section",
+   "fieldtype": "Section Break",
+   "label": "Pool Members"
+  },
+  {
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Members",
+   "options": "Talent Pool Member"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Recruitment",
+ "name": "Talent Pool",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "All",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -536,7 +536,15 @@ class JobService:
         term = f"%{escaped_search}%"
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
 
-        total = frappe.db.count(DOCTYPE_JOB_OPENING, filters=orm_filters, or_filters=or_filters)
+        total = len(
+            frappe.get_all(
+                DOCTYPE_JOB_OPENING,
+                filters=orm_filters,
+                or_filters=or_filters,
+                limit=0,
+                ignore_permissions=True,
+            )
+        )
 
         records = frappe.get_list(
             DOCTYPE_JOB_OPENING,

@@ -47,7 +47,12 @@ from recruitrain_employer.services.job_application_service import (
     JobApplicationService,
 )
 from recruitrain_employer.utils.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
-from recruitrain_employer.utils.exceptions import ATSException
+from recruitrain_employer.utils.exceptions import (
+    ATSConflictError,
+    ATSException,
+    ATSPermissionError,
+)
+from recruitrain_employer.utils.permissions import employer_required
 from recruitrain_employer.utils.response import (
     error_response,
     paginated_response,
@@ -55,29 +60,56 @@ from recruitrain_employer.utils.response import (
 )
 
 
+STATUS_CODE_MAP: dict[str, int] = {
+    "VALIDATION_ERROR": 400,
+    "NOT_FOUND": 404,
+    "PERMISSION_DENIED": 403,
+    "COMPANY_NOT_FOUND": 403,
+    "CONFLICT": 409,
+    "UNAUTHORIZED": 401,
+}
+
+
 # ---------------------------------------------------------------------------
 # Internal Helper
 # ---------------------------------------------------------------------------
 
 
-def _handle_ats_exception(exc: ATSException) -> dict:
-    """Translate an ``ATSException`` into a standardised error response dict.
-
-    Parameters
-    ----------
-    exc : ATSException
-        Any exception from the ATS exception hierarchy.
-
-    Returns
-    -------
-    dict
-        A standardised ``error_response`` dict.
-    """
+def _handle_ats_exception(exc: Exception) -> dict:
+    """Translate an ATSException or Frappe Exception into a standardised error response dict."""
+    if isinstance(exc, ATSPermissionError):
+        msg = getattr(exc, "message", None) or str(exc)
+        status_code = 401 if ("Authentication" in msg or "log in" in msg) else 403
+        return error_response(
+            code=getattr(exc, "code", "PERMISSION_DENIED"),
+            message=msg,
+            details=getattr(exc, "details", None),
+            http_status_code=status_code,
+        )
+    if isinstance(exc, (ATSConflictError, frappe.exceptions.DuplicateEntryError, frappe.exceptions.TimestampMismatchError)):
+        msg = getattr(exc, "message", None) or str(exc)
+        if isinstance(exc, frappe.exceptions.TimestampMismatchError):
+            msg = "This record has been modified by another user. Please reload and try again."
+        return error_response(
+            code="CONFLICT",
+            message=msg,
+            details=getattr(exc, "details", None),
+            http_status_code=409,
+        )
+    if isinstance(exc, ATSException):
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+            http_status_code=STATUS_CODE_MAP.get(exc.code, 400),
+        )
     return error_response(
-        code=exc.code,
-        message=exc.message,
-        details=exc.details,
+        code="INTERNAL_SERVER_ERROR",
+        message="An error occurred while processing job application request.",
+        details={"error": str(exc)},
+        http_status_code=500,
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -86,34 +118,9 @@ def _handle_ats_exception(exc: ATSException) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def create_application() -> dict:
-    """Submit a new Job Application.
-
-    Expected Request Body (JSON / form-data)
-    -----------------------------------------
-    ::
-
-        {
-            "job_opening":      "JOB-0001",          # required
-            "candidate":        "CAND-0001",          # required
-            "cover_letter":     "I am writing ...",   # optional
-            "resume":           "/files/resume.pdf",  # optional
-            "application_date": "2024-02-01",         # optional
-            "status":           "Applied",            # optional
-            "notes":            "Referred by ...",    # optional
-        }
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the new Job Application record,
-        or an error envelope on validation/conflict failure.
-
-    Notes
-    -----
-    Duplicate applications (same ``candidate`` + ``job_opening``) are
-    rejected with a ``CONFLICT`` error.
-    """
+    """Submit a new Job Application."""
     try:
         data = _extract_application_fields(frappe.form_dict)
 
@@ -130,24 +137,13 @@ def create_application() -> dict:
 
 
 @frappe.whitelist()
-def get_application(application_id: str) -> dict:
-    """Retrieve a full Job Application record by ID.
-
-    Parameters
-    ----------
-    application_id : str
-        The ``name`` (primary key) of the Job Application DocType record.
-        Pass as a query-string or JSON body parameter.
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the Job Application document,
-        or an error envelope if not found.
-    """
+@employer_required
+def get_application(application_id: str | None = None) -> dict:
+    """Retrieve a full Job Application record by ID."""
     try:
+        target_id = application_id or frappe.form_dict.get("application_id") or frappe.form_dict.get("name")
         service = JobApplicationService()
-        application = service.get_application(application_id=application_id)
+        application = service.get_application(application_id=target_id)
 
         return success_response(data=application)
 
@@ -156,34 +152,18 @@ def get_application(application_id: str) -> dict:
 
 
 @frappe.whitelist()
-def update_application(application_id: str) -> dict:
-    """Update mutable fields of an existing Job Application record.
-
-    Parameters
-    ----------
-    application_id : str
-        The ``name`` of the Job Application to update.
-
-    Expected Request Body (JSON / form-data)
-    -----------------------------------------
-    Any subset of updatable Job Application fields (see
-    ``JobApplicationValidator.APPLICATION_UPDATABLE_FIELDS``).
-    ``candidate`` and ``job_opening`` cannot be changed here.
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the updated Job Application
-        document, or an error envelope on failure.
-    """
+@employer_required
+def update_application(application_id: str | None = None) -> dict:
+    """Update mutable fields of an existing Job Application record."""
     try:
+        target_id = application_id or frappe.form_dict.get("application_id") or frappe.form_dict.get("name")
         data = _extract_application_fields(
-            frappe.form_dict, exclude={"application_id"}
+            frappe.form_dict, exclude={"application_id", "name"}
         )
 
         service = JobApplicationService()
         application = service.update_application(
-            application_id=application_id,
+            application_id=target_id,
             data=data,
         )
 
@@ -197,34 +177,16 @@ def update_application(application_id: str) -> dict:
 
 
 @frappe.whitelist()
-def delete_application(application_id: str) -> dict:
-    """Delete a Job Application record.
-
-    Parameters
-    ----------
-    application_id : str
-        The ``name`` of the Job Application to delete.
-
-    Returns
-    -------
-    dict
-        Standardised success response on completion, or an error envelope
-        if the record is not found or has blocking linked records.
-
-    Notes
-    -----
-    If the Job Application has linked Interviews or Offers, Frappe will
-    prevent deletion and a ``CONFLICT`` error is returned.  Resolve those
-    references before retrying.
-
-    TODO: Replace hard delete with archive workflow during Application Lifecycle sprint.
-    """
+@employer_required
+def delete_application(application_id: str | None = None) -> dict:
+    """Delete a Job Application record."""
     try:
+        target_id = application_id or frappe.form_dict.get("application_id") or frappe.form_dict.get("name")
         service = JobApplicationService()
-        service.delete_application(application_id=application_id)
+        service.delete_application(application_id=target_id)
 
         return success_response(
-            message=f"Job Application '{application_id}' was deleted successfully."
+            message=f"Job Application '{target_id}' was deleted successfully."
         )
 
     except ATSException as exc:
@@ -237,43 +199,22 @@ def delete_application(application_id: str) -> dict:
 
 
 @frappe.whitelist()
-def change_status(application_id: str, new_status: str) -> dict:
-    """Change the status of a Job Application.
-
-    Parameters
-    ----------
-    application_id : str
-        The ``name`` of the Job Application to update.
-    new_status : str
-        The new status value.  Must be in ``ALLOWED_APPLICATION_STATUSES``:
-
-        Applied | Screening | Shortlisted | Interview Scheduled |
-        Interviewed | Offer Extended | Hired | Rejected | Withdrawn
-
-    Returns
-    -------
-    dict
-        Standardised success response containing the updated Job Application
-        document, or an error envelope on failure.
-
-    Notes
-    -----
-    Status transition rules (forward-only, terminal-stage blocking) are
-    deferred to the Application Lifecycle sprint.  This endpoint currently
-    accepts any valid status value regardless of the current status.
-
-    TODO: Add transition validation in Application Lifecycle sprint.
-    """
+@employer_required
+def change_status(application_id: str | None = None, new_status: str | None = None) -> dict:
+    """Change the status of a Job Application."""
     try:
+        target_id = application_id or frappe.form_dict.get("application_id") or frappe.form_dict.get("name")
+        status_val = new_status or frappe.form_dict.get("new_status") or frappe.form_dict.get("status")
+
         service = JobApplicationService()
         application = service.change_status(
-            application_id=application_id,
-            new_status=new_status,
+            application_id=target_id,
+            new_status=status_val,
         )
 
         return success_response(
             data=application,
-            message=f"Application status updated to '{new_status}'.",
+            message=f"Application status updated to '{status_val}'.",
         )
 
     except ATSException as exc:
@@ -286,46 +227,15 @@ def change_status(application_id: str, new_status: str) -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def list_applications() -> dict:
-    """Return a paginated, filtered list of Job Application records.
-
-    Query Parameters
-    ----------------
-    page             : int  (default 1)
-        Page number (1-indexed).
-    page_size        : int  (default 20, max 100)
-        Number of records per page.
-    candidate        : str  (optional)
-        Filter by Candidate ID.
-    job_opening      : str  (optional)
-        Filter by Job Opening ID.
-    company          : str  (optional)
-        Filter by Company.
-    status           : str  (optional)
-        Filter by application status.
-    application_date : str  (optional)
-        Filter by exact application date (YYYY-MM-DD).
-    order_by         : str  (optional, default ``"creation"``)
-        Field to sort by.  Must be a whitelisted sortable field.
-    order_dir        : str  (optional, default ``"desc"``)
-        Sort direction — ``"asc"`` or ``"desc"``.
-
-    Returns
-    -------
-    dict
-        Paginated success response with ``data`` list and ``meta`` block.
-
-    TODO: Add date-range filter parameters in a future sprint.
-    TODO: Add employer-scoped filtering once Employer–Company linking is defined.
-    """
+    """Return a paginated, filtered list of Job Application records."""
     try:
         page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
         page_size = int(frappe.form_dict.get("page_size", DEFAULT_PAGE_SIZE))
         order_by = frappe.form_dict.get("order_by", "creation")
         order_dir = frappe.form_dict.get("order_dir", "desc")
 
-        # Build the extensible filter map — add new keys here as new
-        # filter parameters are added to the API.
         filters = _extract_list_filters(frappe.form_dict)
 
         service = JobApplicationService()
@@ -349,40 +259,9 @@ def list_applications() -> dict:
 
 
 @frappe.whitelist()
+@employer_required
 def search_applications() -> dict:
-    """Search Job Application records across multiple fields.
-
-    Searches across: candidate, job_opening, name (application ID),
-    status, company.
-
-    To add a new searchable field, update ``SEARCHABLE_FIELDS`` in
-    ``JobApplicationService`` — no changes are needed here.
-
-    Query Parameters
-    ----------------
-    search           : str  (required)
-        The search term.  Partial matches are supported.
-    page             : int  (default 1)
-    page_size        : int  (default 20, max 100)
-    candidate        : str  (optional)
-        Narrow search results by candidate.
-    job_opening      : str  (optional)
-        Narrow search results by job opening.
-    company          : str  (optional)
-        Narrow search results by company.
-    status           : str  (optional)
-        Narrow search results by status.
-    application_date : str  (optional)
-        Narrow search results by exact application date.
-    order_by         : str  (optional, default ``"creation"``)
-    order_dir        : str  (optional, default ``"desc"``)
-
-    Returns
-    -------
-    dict
-        Paginated success response with ``data`` list and ``meta`` block,
-        or an error envelope if the search term is missing.
-    """
+    """Search Job Application records across multiple fields."""
     try:
         search = frappe.form_dict.get("search", "").strip()
         page = int(frappe.form_dict.get("page", DEFAULT_PAGE))
@@ -401,6 +280,7 @@ def search_applications() -> dict:
             order_by=order_by,
             order_dir=order_dir,
         )
+
 
         return paginated_response(
             data=result["data"],
@@ -422,8 +302,6 @@ def search_applications() -> dict:
 def schedule_interview(application_id: str) -> dict:
     """Schedule an Interview for a Job Application.
 
-    TODO: Implement in the Interview Scheduling sprint.
-    TODO: Delegate to InterviewService.create_interview().
     """
     return error_response(
         code="NOT_IMPLEMENTED",
@@ -435,8 +313,6 @@ def schedule_interview(application_id: str) -> dict:
 def generate_offer(application_id: str) -> dict:
     """Generate an Offer for a hired Job Application.
 
-    TODO: Implement in the Offer Generation sprint.
-    TODO: Delegate to OfferService.create_offer().
     """
     return error_response(
         code="NOT_IMPLEMENTED",
@@ -505,8 +381,6 @@ def _extract_list_filters(form_dict) -> dict:
         ``JobApplicationService.list_applications`` or
         ``JobApplicationService.search_applications``.
 
-    TODO: Add date-range filter (application_date_from / application_date_to).
-    TODO: Add employer-scoped filter once Employer–Company linking is defined.
     """
     filters: dict = {}
 
