@@ -84,6 +84,7 @@ OFFER_UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "status",
         "response_date",
         "candidate_remarks",
+        "offer_letter",
         "notes",
     ]
 )

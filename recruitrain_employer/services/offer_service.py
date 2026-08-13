@@ -269,6 +269,24 @@ class OfferService:
         doc = self._get_or_raise(offer_id)
         self._assert_company_access(doc.company)
 
+        blocking_links: dict[str, int] = {}
+        if frappe.db.table_exists("Activity Logs"):
+            cnt = frappe.db.count("Activity Logs", filters={"reference_doctype": "Offer", "reference_name": offer_id})
+            if cnt > 0:
+                blocking_links["activity_logs"] = cnt
+
+        if blocking_links:
+            parts = [f"{cnt} {dt.replace('_', ' ')}" for dt, cnt in blocking_links.items()]
+            summary = ", ".join(parts)
+            raise ATSConflictError(
+                f"Offer '{offer_id}' cannot be deleted because it has linked recruitment records: {summary}.",
+                details={
+                    "offer_id": offer_id,
+                    "error_code": "OFFER_HAS_RECRUITMENT_HISTORY",
+                    "blocking_links": blocking_links,
+                },
+            )
+
         try:
             frappe.delete_doc(
                 DOCTYPE_OFFER,
@@ -279,7 +297,7 @@ class OfferService:
         except LinkExistsError as exc:
             raise ATSConflictError(
                 f"Offer '{offer_id}' cannot be deleted because it is referenced by linked records.",
-                details={"offer_id": offer_id},
+                details={"offer_id": offer_id, "error_code": "OFFER_HAS_RECRUITMENT_HISTORY"},
             ) from exc
 
     def list_offers(
@@ -333,7 +351,32 @@ class OfferService:
 
         escaped_search = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         term = f"%{escaped_search}%"
+
+        cand_ids = frappe.get_all(
+            "Candidate",
+            filters=[["candidate_name", "like", term]],
+            or_filters=[
+                ["email", "like", term],
+                ["first_name", "like", term],
+                ["last_name", "like", term],
+            ],
+            pluck="name",
+            ignore_permissions=True,
+        )
+
+        job_ids = frappe.get_all(
+            "Job Opening",
+            filters=[["job_title", "like", term]],
+            or_filters=[["job_code", "like", term]],
+            pluck="name",
+            ignore_permissions=True,
+        )
+
         or_filters = [[field, "like", term] for field in SEARCHABLE_FIELDS]
+        if cand_ids:
+            or_filters.append(["candidate", "in", cand_ids])
+        if job_ids:
+            or_filters.append(["job_opening", "in", job_ids])
 
         total = len(
             frappe.get_list(
