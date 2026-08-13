@@ -116,13 +116,26 @@ _LIST_FIELDS: list[str] = [
     "city",
     "state",
     "country",
+    "address",
     "remote",
     "hybrid",
     "status",
     "target_joining_date",
+    "closing_date",
+    "compensation_type",
     "currency",
     "minimum_salary",
     "maximum_salary",
+    "tariff_group",
+    "entgeltgruppe",
+    "german_level_required",
+    "english_level_required",
+    "other_language_requirements",
+    "allow_international_candidates",
+    "allow_domestic_candidates",
+    "max_applicants_limit",
+    "auto_close_on_limit",
+    "keywords",
     "number_of_openings",
     "published",
     "published_at",
@@ -143,17 +156,30 @@ _DETAIL_FIELDS: list[str] = [
     "hiring_manager",
     "recruiter",
     "target_joining_date",
+    "closing_date",
     "minimum_experience",
     "maximum_experience",
+    "compensation_type",
     "currency",
     "minimum_salary",
     "maximum_salary",
     "salary_negotiable",
+    "tariff_group",
+    "entgeltgruppe",
+    "address",
     "country",
     "state",
     "city",
     "remote",
     "hybrid",
+    "german_level_required",
+    "english_level_required",
+    "other_language_requirements",
+    "allow_international_candidates",
+    "allow_domestic_candidates",
+    "max_applicants_limit",
+    "auto_close_on_limit",
+    "keywords",
     "job_summary",
     "responsibilities",
     "requirements",
@@ -164,6 +190,7 @@ _DETAIL_FIELDS: list[str] = [
     "published_by",
     "featured_job",
 ]
+
 
 
 class JobService:
@@ -375,23 +402,16 @@ class JobService:
 
         doc.company = current_company
 
-        combined_payload = {
-            "job_title": doc.job_title,
-            "company": current_company,
-            "employment_type": doc.employment_type,
-            "job_summary": doc.job_summary,
-            "responsibilities": getattr(doc, "responsibilities", None),
-            "requirements": getattr(doc, "requirements", None),
-            "status": "Open",
-            "published": 1,
-            "salary_min": getattr(doc, "minimum_salary", None),
-            "salary_max": getattr(doc, "maximum_salary", None),
-            "opening_date": getattr(doc, "opening_date", None),
-            "closing_date": getattr(doc, "closing_date", None),
-            "department": getattr(doc, "department", None),
-            "profession": getattr(doc, "profession", None),
-        }
+        combined_payload = self._serialize_job(doc, fields=_DETAIL_FIELDS)
+        combined_payload.update(
+            {
+                "company": current_company,
+                "status": "Open",
+                "published": 1,
+            }
+        )
         self._validator.validate_publish(combined_payload)
+
 
         if combined_payload.get("employment_type"):
             doc.employment_type = combined_payload["employment_type"]
@@ -745,7 +765,16 @@ class JobService:
         if "number_of_openings" in data and "number_of_positions" not in data:
             data["number_of_positions"] = data["number_of_openings"]
 
-        loc_parts = [str(data[k]) for k in ("city", "state", "country") if data.get(k)]
+        if "keywords" in data:
+            kw_val = data["keywords"]
+            if isinstance(kw_val, str):
+                data["keywords"] = [k.strip() for k in kw_val.split(",") if k.strip()]
+            elif isinstance(kw_val, (list, tuple)):
+                data["keywords"] = [str(k).strip() for k in kw_val if str(k).strip()]
+            elif not kw_val:
+                data["keywords"] = []
+
+        loc_parts = [str(data[k]) for k in ("address", "city", "state", "country") if data.get(k)]
         if loc_parts:
             data["location"] = ", ".join(loc_parts)
         elif data.get("remote"):
@@ -766,6 +795,7 @@ class JobService:
 
         data.update(default_metrics)
         return data
+
 
     @staticmethod
     def _apply_changed_fields(doc, data: dict) -> dict:
@@ -802,6 +832,16 @@ class JobService:
             orm["industry"] = filters["industry"]
         if filters.get("status"):
             orm["status"] = filters["status"]
+        if filters.get("compensation_type"):
+            orm["compensation_type"] = filters["compensation_type"]
+        if filters.get("tariff_group"):
+            orm["tariff_group"] = filters["tariff_group"]
+        if filters.get("german_level_required"):
+            orm["german_level_required"] = filters["german_level_required"]
+        if filters.get("allow_international_candidates") is not None:
+            orm["allow_international_candidates"] = filters["allow_international_candidates"]
+        if filters.get("allow_domestic_candidates") is not None:
+            orm["allow_domestic_candidates"] = filters["allow_domestic_candidates"]
         if filters.get("city"):
             orm["city"] = filters["city"]
         if filters.get("state"):
@@ -821,6 +861,7 @@ class JobService:
             orm["city"] = ["like", f"%{filters['location']}%"]
 
         return orm
+
 
     @staticmethod
     def _sanitise_pagination(page: int, page_size: int) -> tuple[int, int]:

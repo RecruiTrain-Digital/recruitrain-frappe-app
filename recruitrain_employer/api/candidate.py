@@ -206,6 +206,88 @@ def delete_candidate(candidate_id: str | None = None) -> dict[str, Any]:
 
 @frappe.whitelist()
 @employer_required
+def change_candidate_status(candidate_id: str | None = None) -> dict[str, Any]:
+    """Perform an FSM-validated candidate status transition (Kanban drag-and-drop).
+
+    Frontend MUST call this for every Kanban card move. Backend validates the FSM
+    transition, persists, and returns the authoritative state. If invalid, the
+    frontend must revert the card position.
+
+    Payload:
+        candidate_id (str): The candidate record name.
+        new_status (str): The target status.
+    """
+    try:
+        payload = _get_payload()
+        if not candidate_id:
+            candidate_id = payload.pop("candidate_id", None) or payload.pop("name", None)
+        new_status = payload.get("new_status") or payload.get("status")
+        if not new_status:
+            from recruitrain_employer.utils.exceptions import ATSValidationError as _AVE
+            raise _AVE("new_status is required.", field="new_status")
+        service = CandidateService()
+        result = service.update_candidate(candidate_id, {"status": new_status})
+        return success_response(data=result, message=f"Candidate status updated to '{new_status}'.")
+    except Exception as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def get_candidate_activity(candidate_id: str | None = None) -> dict[str, Any]:
+    """Return authoritative audit trail (Activity Logs) for a given candidate.
+
+    Frontend must consume this directly — no client-side timeline fabrication.
+
+    Payload:
+        candidate_id (str): The candidate record name.
+        page (int, optional): Page number (default 1).
+        page_size (int, optional): Records per page (default 20, max 100).
+    """
+    try:
+        payload = _get_payload()
+        if not candidate_id:
+            candidate_id = payload.get("candidate_id") or payload.get("name")
+        page = int(payload.get("page", 1))
+        page_size = min(100, max(1, int(payload.get("page_size", 20))))
+        service = CandidateService()
+        result = service.get_candidate_activity(candidate_id, page=page, page_size=page_size)
+        return paginated_response(
+            items=result["items"],
+            total=result["total"],
+            page=result["page"],
+            page_size=result["page_size"],
+            total_pages=result["total_pages"],
+            message="Candidate activity retrieved successfully.",
+        )
+    except Exception as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
+def get_kanban_groups() -> dict[str, Any]:
+    """Return company-scoped candidates grouped by status for Kanban board rendering.
+
+    Backend is sole authority on column definitions and groupings.
+    Frontend MUST NOT hard-code status names or compute groups locally.
+
+    Returns:
+        {
+            "statuses": ["Draft", "Active", ...],
+            "groups": { "Active": [...], "In Review": [...], ... }
+        }
+    """
+    try:
+        service = CandidateService()
+        result = service.get_kanban_groups()
+        return success_response(data=result, message="Kanban groups retrieved successfully.")
+    except Exception as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def list_candidates() -> dict[str, Any]:
     """List company-scoped candidates with pagination and filters."""
     try:

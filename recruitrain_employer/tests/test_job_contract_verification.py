@@ -109,7 +109,13 @@ def run_contract_tests():
         publish_payload = {
             "responsibilities": "Building scalable web software",
             "requirements": "Python, Frappe, JS, CSS",
+            "german_level_required": "B2",
+            "compensation_type": "Salary Range",
+            "minimum_salary": 60000,
+            "maximum_salary": 80000,
+            "currency": "EUR",
         }
+
         published = service.publish_job(created_draft["name"], publish_payload)
         assert published["status"] == "Open"
         assert published["published"] == 1

@@ -15,25 +15,41 @@
   "profession",
   "employment_type",
   "industry",
+  "keywords",
   "hiring_information_section",
   "number_of_openings",
   "hiring_manager",
   "recruiter",
   "target_joining_date",
+  "closing_date",
   "experience_section",
   "minimum_experience",
   "maximum_experience",
-  "salary_section",
+  "compensation_section",
+  "compensation_type",
   "currency",
   "minimum_salary",
   "maximum_salary",
   "salary_negotiable",
-  "salary_negotiable_section",
+  "tariff_group",
+  "entgeltgruppe",
+  "location_section",
+  "address",
   "country",
   "state",
   "city",
   "remote",
   "hybrid",
+  "language_section",
+  "german_level_required",
+  "english_level_required",
+  "other_language_requirements",
+  "candidate_preferences_section",
+  "allow_international_candidates",
+  "allow_domestic_candidates",
+  "application_settings_section",
+  "max_applicants_limit",
+  "auto_close_on_limit",
   "description_section",
   "job_summary",
   "responsibilities",
@@ -102,6 +118,11 @@
    "options": "Industry"
   },
   {
+   "fieldname": "keywords",
+   "fieldtype": "Small Text",
+   "label": "Keywords"
+  },
+  {
    "fieldname": "hiring_information_section",
    "fieldtype": "Section Break",
    "label": "Hiring Information"
@@ -130,6 +151,11 @@
    "label": "Target Joining Date"
   },
   {
+   "fieldname": "closing_date",
+   "fieldtype": "Date",
+   "label": "Closing Date"
+  },
+  {
    "fieldname": "experience_section",
    "fieldtype": "Section Break",
    "label": "Experience"
@@ -145,9 +171,16 @@
    "label": "Maximum Experience"
   },
   {
-   "fieldname": "salary_section",
+   "fieldname": "compensation_section",
    "fieldtype": "Section Break",
-   "label": "Salary"
+   "label": "Compensation"
+  },
+  {
+   "default": "Salary Range",
+   "fieldname": "compensation_type",
+   "fieldtype": "Select",
+   "label": "Compensation Type",
+   "options": "Salary Range\nCollective Agreement (Tarifvertrag)"
   },
   {
    "fieldname": "currency",
@@ -158,12 +191,12 @@
   {
    "fieldname": "minimum_salary",
    "fieldtype": "Currency",
-   "label": "Minimum Salary"
+   "label": "Minimum Annual Salary"
   },
   {
    "fieldname": "maximum_salary",
    "fieldtype": "Currency",
-   "label": "Maximum Salary"
+   "label": "Maximum Annual Salary"
   },
   {
    "default": "0",
@@ -172,9 +205,24 @@
    "label": "Salary Negotiable"
   },
   {
-   "fieldname": "salary_negotiable_section",
+   "fieldname": "tariff_group",
+   "fieldtype": "Data",
+   "label": "Tariff Group"
+  },
+  {
+   "fieldname": "entgeltgruppe",
+   "fieldtype": "Data",
+   "label": "Entgeltgruppe"
+  },
+  {
+   "fieldname": "location_section",
    "fieldtype": "Section Break",
-   "label": "Salary Negotiable"
+   "label": "Location & Address"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Small Text",
+   "label": "Address"
   },
   {
    "fieldname": "country",
@@ -203,6 +251,61 @@
    "fieldname": "hybrid",
    "fieldtype": "Check",
    "label": "Hybrid"
+  },
+  {
+   "fieldname": "language_section",
+   "fieldtype": "Section Break",
+   "label": "Language Requirements"
+  },
+  {
+   "fieldname": "german_level_required",
+   "fieldtype": "Select",
+   "label": "German Level Required",
+   "options": "\nA1\nA2\nB1\nB2\nC1\nC2"
+  },
+  {
+   "fieldname": "english_level_required",
+   "fieldtype": "Select",
+   "label": "English Level Required",
+   "options": "\nA1\nA2\nB1\nB2\nC1\nC2"
+  },
+  {
+   "fieldname": "other_language_requirements",
+   "fieldtype": "Small Text",
+   "label": "Other Language Requirements"
+  },
+  {
+   "fieldname": "candidate_preferences_section",
+   "fieldtype": "Section Break",
+   "label": "Candidate Preferences"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_international_candidates",
+   "fieldtype": "Check",
+   "label": "Allow International Candidates"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_domestic_candidates",
+   "fieldtype": "Check",
+   "label": "Allow Domestic Candidates"
+  },
+  {
+   "fieldname": "application_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Application Settings"
+  },
+  {
+   "fieldname": "max_applicants_limit",
+   "fieldtype": "Int",
+   "label": "Max Applicants Limit"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_close_on_limit",
+   "fieldtype": "Check",
+   "label": "Auto Close on Limit"
   },
   {
    "fieldname": "description_section",
@@ -270,7 +373,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 19:05:27.683991",
+ "modified": "2026-08-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Recruitment",
  "name": "Job Opening",

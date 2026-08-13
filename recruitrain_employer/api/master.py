@@ -157,3 +157,22 @@ def list_industries() -> dict:
         for r in records
     ]
     return success_response(data=data, message="Industries retrieved successfully.")
+
+
+@frappe.whitelist(allow_guest=True)
+def list_tariff_groups(profession: str | None = None, department: str | None = None) -> dict:
+    """Return list of canonical Tariff Group records optionall filtered by profession or department."""
+    from recruitrain_employer.validators.tariff_group_validator import get_tariff_groups_for_category
+
+    prof_param = profession or frappe.form_dict.get("profession")
+    dept_param = department or frappe.form_dict.get("department")
+
+    data = get_tariff_groups_for_category(profession=prof_param, department=dept_param)
+    return success_response(data=data, message="Tariff groups retrieved successfully.")
+
+
+@frappe.whitelist(allow_guest=True)
+def get_tariff_groups(profession: str | None = None, department: str | None = None) -> dict:
+    """Alias for list_tariff_groups."""
+    return list_tariff_groups(profession=profession, department=department)
+

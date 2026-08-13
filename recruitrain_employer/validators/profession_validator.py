@@ -47,6 +47,19 @@ DEFAULT_PROFESSION_DEPARTMENT_MAP: dict[str, str] = {
     "Physiotherapist": "Healthcare",
     "Pflegefachkraft": "Healthcare",
     "Care Assistant": "Healthcare",
+    "Medizinische/r Fachangestellte/r (MFA)": "Healthcare",
+    "Zahnmedizinische/r Fachangestellte/r (ZFA)": "Healthcare",
+    "Operationstechnische Assistency (OTA)": "Healthcare",
+    "Physiotherapeut/in": "Healthcare",
+    "Ergotherapeut/in": "Healthcare",
+    "Exam. Gesundheits- und Krankenpfleger/in": "Healthcare",
+    "Exam. Gesundheits- und Kinderkrankenpfleger/in": "Healthcare",
+    "Exam. Altenpfleger/in": "Healthcare",
+    "Exam. Altenpflegehelfer/in": "Healthcare",
+    "Exam. Gesundheits- und Krankenpfleger/in mit Fachweiterbildung": "Healthcare",
+    "Exam. Krankenpflegehelfer/in": "Healthcare",
+    "Pflegehelfer/in": "Healthcare",
+    "Wohnbereichsleitung": "Healthcare",
 
     # Information Technology
     "Software Engineer": "Information Technology",
@@ -165,6 +178,12 @@ PROFESSION_SYNONYM_MAP: dict[str, str] = {
     "krankenpfleger": "Pflegefachkraft",
     "altenpfleger": "Pflegefachkraft",
     "care assistant": "Care Assistant",
+    "mfa": "Medizinische/r Fachangestellte/r (MFA)",
+    "zfa": "Zahnmedizinische/r Fachangestellte/r (ZFA)",
+    "ota": "Operationstechnische Assistency (OTA)",
+    "ergotherapeut": "Ergotherapeut/in",
+    "pflegehelfer": "Pflegehelfer/in",
+    "wohnbereichsleitung": "Wohnbereichsleitung",
 
     # IT
     "software engineer": "Software Engineer",

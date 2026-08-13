@@ -729,3 +729,170 @@ class CandidateService:
             )
         except Exception as exc:
             frappe.logger().error(f"[CandidateService] Notification failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Kanban Foundation Methods
+    # ------------------------------------------------------------------
+
+    def get_candidate_activity(
+        self,
+        candidate_id: str,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> dict[str, Any]:
+        """Return authoritative Activity Log entries for a given candidate.
+
+        Queries the `Activity Logs` DocType filtering on the `candidate` Link field.
+        Returns paginated, chronologically ordered entries.
+
+        Parameters
+        ----------
+        candidate_id : str
+            The Candidate record name (primary key).
+        page : int
+            1-indexed page number.
+        page_size : int
+            Records per page (max MAX_PAGE_SIZE).
+
+        Returns
+        -------
+        dict with keys: items, total, page, page_size, total_pages.
+        """
+        # Validate access
+        self._get_or_raise(candidate_id)
+
+        page, page_size = self._sanitise_pagination(page, page_size)
+        start = (page - 1) * page_size
+
+        if not frappe.db.table_exists("Activity Logs"):
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+
+        total = frappe.db.count("Activity Logs", {"candidate": candidate_id})
+        records = frappe.get_all(
+            "Activity Logs",
+            filters={"candidate": candidate_id},
+            fields=[
+                "name",
+                "activity_name",
+                "activity_type",
+                "description",
+                "activity_date",
+                "performed_by",
+                "company",
+                "reference_doctype",
+                "reference_name",
+                "remarks",
+            ],
+            order_by="activity_date desc, creation desc",
+            start=start,
+            page_length=page_size,
+            ignore_permissions=True,
+        )
+
+        items = []
+        for r in records:
+            item = dict(r)
+            item["activity_date"] = str(item["activity_date"]) if item.get("activity_date") else None
+            items.append(item)
+
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
+    def get_kanban_groups(self) -> dict[str, Any]:
+        """Return company-scoped candidates grouped by status for Kanban board rendering.
+
+        The backend is the sole authority on:
+        - Which status columns exist (drawn from ALLOWED_CANDIDATE_STATUSES).
+        - Which candidates appear in each column.
+        - The compact card data returned for each candidate.
+
+        No client-side grouping or status list fabrication is required.
+
+        Returns
+        -------
+        dict with:
+            statuses (list[str]): Ordered list of all valid status columns.
+            groups (dict[str, list[dict]]): Candidates keyed by status.
+            transitions (dict[str, list[str]]): FSM allowed transitions per status.
+        """
+        from recruitrain_employer.utils.constants import (
+            ALLOWED_CANDIDATE_STATUSES,
+            CANDIDATE_STATUS_TRANSITIONS,
+        )
+
+        company = get_current_company()
+        candidate_ids = self._get_company_scoped_candidate_names(company)
+
+        if not candidate_ids:
+            groups = {s: [] for s in ALLOWED_CANDIDATE_STATUSES}
+            return {
+                "statuses": ALLOWED_CANDIDATE_STATUSES,
+                "groups": groups,
+                "transitions": CANDIDATE_STATUS_TRANSITIONS,
+            }
+
+        filters: dict[str, Any] = {"name": ["in", candidate_ids]}
+        records = frappe.get_all(
+            DOCTYPE_CANDIDATE,
+            filters=filters,
+            fields=[
+                "name",
+                "candidate_id",
+                "candidate_name",
+                "first_name",
+                "last_name",
+                "email",
+                "mobile_no",
+                "profession",
+                "city",
+                "country",
+                "status",
+                "profile_completion",
+                "years_of_experience",
+                "creation",
+            ],
+            order_by="creation desc",
+            ignore_permissions=True,
+        )
+
+        groups: dict[str, list[dict]] = {s: [] for s in ALLOWED_CANDIDATE_STATUSES}
+        batch_apps = self._get_batch_latest_applications([r["name"] for r in records])
+
+        for r in records:
+            status = r.get("status") or "Active"
+            if status not in groups:
+                status = "Active"
+            first = r.get("first_name") or ""
+            last = r.get("last_name") or ""
+            full_name = f"{first} {last}".strip() or r.get("candidate_name") or r.get("name")
+            city = r.get("city") or ""
+            country = r.get("country") or ""
+            location_display = ", ".join(p for p in [city, country] if p)
+            latest_app = batch_apps.get(r["name"])
+            card = {
+                "name": r["name"],
+                "candidate_id": r.get("candidate_id") or r["name"],
+                "full_name": full_name,
+                "email": r.get("email"),
+                "mobile_no": r.get("mobile_no"),
+                "profession": r.get("profession"),
+                "location_display": location_display,
+                "status": status,
+                "profile_completion": float(r.get("profile_completion") or 0.0),
+                "years_of_experience": r.get("years_of_experience", 0.0),
+                "latest_application": latest_app,
+                "creation": str(r["creation"]) if r.get("creation") else None,
+            }
+            groups[status].append(card)
+
+        return {
+            "statuses": ALLOWED_CANDIDATE_STATUSES,
+            "groups": groups,
+            "transitions": CANDIDATE_STATUS_TRANSITIONS,
+        }

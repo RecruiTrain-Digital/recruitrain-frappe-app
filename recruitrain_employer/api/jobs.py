@@ -430,6 +430,11 @@ def _extract_list_filters(form_dict) -> dict:
         "employment_type",
         "industry",
         "status",
+        "compensation_type",
+        "tariff_group",
+        "german_level_required",
+        "allow_international_candidates",
+        "allow_domestic_candidates",
         "city",
         "state",
         "country",
@@ -444,3 +449,4 @@ def _extract_list_filters(form_dict) -> dict:
             filters[key] = form_dict[key]
 
     return filters
+
