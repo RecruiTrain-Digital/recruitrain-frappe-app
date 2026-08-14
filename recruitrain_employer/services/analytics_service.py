@@ -240,6 +240,34 @@ class AnalyticsService:
         except Exception as exc:
             raise ATSServiceError(f"Failed to calculate overview metrics: {str(exc)}") from exc
 
+    def get_analytics(
+        self,
+        company: str | None = None,
+        job_opening: str | None = None,
+        from_date: date | str | None = None,
+        to_date: date | str | None = None,
+    ) -> dict:
+        """Return unified aggregate analytics payload covering all dashboard categories."""
+        overview = self.get_overview(company=company, from_date=from_date, to_date=to_date)
+        funnel = self.get_funnel(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+        trends = self.get_trends(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+        jobs = self.get_job_metrics(company=company, from_date=from_date, to_date=to_date)
+        applications = self.get_application_metrics(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+        interviews = self.get_interview_metrics(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+        offers = self.get_offer_metrics(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+        time_to_hire = self.get_time_to_hire(company=company, job_opening=job_opening, from_date=from_date, to_date=to_date)
+
+        return {
+            "overview": overview,
+            "funnel": funnel,
+            "trends": trends,
+            "jobs": jobs,
+            "applications": applications,
+            "interviews": interviews,
+            "offers": offers,
+            "time_to_hire": time_to_hire,
+        }
+
     # ------------------------------------------------------------------
     # 2. Recruitment Funnel
     # ------------------------------------------------------------------

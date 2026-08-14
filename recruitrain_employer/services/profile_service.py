@@ -17,6 +17,7 @@ Canonical Source of Truth:
 - Employer User (DocType)
 - Company (DocType)
 - File (Frappe DocType)
+- User (Frappe DocType)
 """
 
 from __future__ import annotations
@@ -43,10 +44,11 @@ ALLOWED_IMAGE_MIMES = frozenset([
     "image/jpeg",
     "image/jpg",
     "image/webp",
+    "image/svg+xml",
 ])
 
 ALLOWED_IMAGE_EXTENSIONS = frozenset([
-    ".png", ".jpg", ".jpeg", ".webp"
+    ".png", ".jpg", ".jpeg", ".webp", ".svg"
 ])
 
 
@@ -91,7 +93,7 @@ class ProfileService:
 
     def _get_active_employer_user_doc(self):
         """Resolve and return the current authenticated user's Employer User document.
-        
+
         Security requirement: User is resolved strictly from session. Never trust profile_id
         from the frontend to prevent IDOR attacks.
         """
@@ -139,102 +141,104 @@ class ProfileService:
         logo_path = company_doc.get("logo") if company_doc else None
         logo_url = self._get_absolute_url(logo_path)
 
-        # First / Last / Full name resolution
+        # Name resolution
         first_name = emp_doc.get("first_name") or (user_doc.first_name if user_doc else "")
+        middle_name = emp_doc.get("middle_name") or (user_doc.middle_name if user_doc and hasattr(user_doc, "middle_name") else "")
         last_name = emp_doc.get("last_name") or (user_doc.last_name if user_doc else "")
         full_name = emp_doc.get("full_name") or (user_doc.full_name if user_doc else f"{first_name} {last_name}".strip())
+
+        # Email resolution (Read-only authentication identity)
+        email = user_doc.email if user_doc else user_id
 
         # Phone resolution
         phone = emp_doc.get("phone") or (user_doc.get("mobile_no") or user_doc.get("phone") if user_doc else "") or (company_doc.get("phone") if company_doc else "")
 
         # Bio resolution
-        bio = emp_doc.get("bio") or (user_doc.get("bio") if user_doc else "")
+        bio = emp_doc.get("bio") or (user_doc.get("bio") if user_doc else None)
 
         # Preferences resolution
-        timezone = emp_doc.get("timezone") or (user_doc.get("time_zone") if user_doc else None) or (company_doc.get("timezone") if company_doc else "UTC")
-        language = emp_doc.get("language") or (user_doc.get("language") if user_doc else None) or (company_doc.get("language") if company_doc else "en")
+        timezone = emp_doc.get("timezone") or (user_doc.get("time_zone") if user_doc else None) or (company_doc.get("timezone") if company_doc else None)
+        language = emp_doc.get("language") or (user_doc.get("language") if user_doc else None) or (company_doc.get("language") if company_doc else None)
 
         # Location resolution
         city = emp_doc.get("city") or (company_doc.get("city") if company_doc else "")
         state = emp_doc.get("state") or (company_doc.get("state") if company_doc else "")
         country = emp_doc.get("country") or (company_doc.get("country") if company_doc else "")
-        location_parts = [p for p in [city, state, country] if p]
-        location_str = ", ".join(location_parts) if location_parts else ""
 
         # Notification Preferences parsing
-        notification_prefs = emp_doc.get("notification_preferences")
-        if isinstance(notification_prefs, str) and notification_prefs:
+        raw_prefs = emp_doc.get("notification_preferences")
+        notification_prefs = {}
+        if isinstance(raw_prefs, str) and raw_prefs:
             try:
-                notification_prefs = frappe.parse_json(notification_prefs)
+                notification_prefs = frappe.parse_json(raw_prefs)
             except Exception as exc:
                 frappe.logger().warning(f"Failed to parse notification_preferences JSON: {exc}")
+        elif isinstance(raw_prefs, dict):
+            notification_prefs = raw_prefs
 
-        employer_data = {
+        # Datetime formatting
+        last_login_str = str(emp_doc.get("last_login")) if emp_doc.get("last_login") else None
+        last_login_at_str = str(emp_doc.get("last_login_at")) if emp_doc.get("last_login_at") else None
+
+        user_data = {
             "id": emp_doc.name,
             "user": user_id,
             "first_name": first_name,
+            "middle_name": middle_name,
             "last_name": last_name,
             "full_name": full_name,
-            "email": user_doc.email if user_doc else user_id,
+            "email": email,
             "phone": phone,
+            "profile_image": avatar_url,
+            "avatar": avatar_url,
             "designation": emp_doc.get("designation") or "",
             "department": emp_doc.get("department") or "",
+            "role": emp_doc.get("role") or "",
+            "status": emp_doc.get("status") or "",
             "employee_id": emp_doc.get("employee_id") or "",
             "bio": bio,
-            "role": emp_doc.get("role") or "Viewer",
-            "avatar": avatar_url,
-            "avatar_url": avatar_url,
             "city": city,
             "state": state,
             "country": country,
-            "location": location_str,
-            "status": emp_doc.get("status") or "Active",
             "is_primary_recruiter": bool(emp_doc.get("is_primary_recruiter")),
             "can_publish_jobs": bool(emp_doc.get("can_publish_jobs")),
             "can_hire": bool(emp_doc.get("can_hire")),
             "can_manage_recruiters": bool(emp_doc.get("can_manage_recruiters")),
+            "timezone": timezone,
+            "language": language,
+            "notification_preferences": notification_prefs,
+            "last_login": last_login_str,
+            "last_login_at": last_login_at_str,
+            "login_count": emp_doc.get("login_count") or 0,
         }
 
         company_data = {
-            "company_id": company_doc.name if company_doc else company_id,
+            "name": company_doc.name if company_doc else company_id,
             "company_name": company_doc.get("company_name") if company_doc else company_id,
+            "company_code": company_doc.get("company_code") if company_doc else "",
+            "logo": logo_url,
+            "email": company_doc.get("email") if company_doc else "",
+            "website": company_doc.get("website") if company_doc else "",
             "legal_name": company_doc.get("legal_name") if company_doc else "",
             "industry": company_doc.get("industry") if company_doc else "",
             "company_size": company_doc.get("company_size") if company_doc else "",
-            "website": company_doc.get("website") if company_doc else "",
-            "logo": logo_url,
-            "description": company_doc.get("description") if company_doc else "",
-            "email": company_doc.get("email") if company_doc else "",
-            "phone": company_doc.get("phone") if company_doc else "",
-            "address_line_1": company_doc.get("address_line_1") if company_doc else "",
-            "address_line_2": company_doc.get("address_line_2") if company_doc else "",
-            "city": company_doc.get("city") if company_doc else "",
-            "state": company_doc.get("state") if company_doc else "",
-            "country": company_doc.get("country") if company_doc else "",
-            "postal_code": company_doc.get("postal_code") if company_doc else "",
         }
 
-        contact_details = {
-            "email": user_doc.email if user_doc else user_id,
-            "phone": phone,
-            "hr_email": company_doc.get("hr_email") if company_doc else "",
-            "support_email": company_doc.get("support_email") if company_doc else "",
-        }
-
-        preferences = {
-            "timezone": timezone,
+        preferences_data = {
             "language": language,
-            "notification_preferences": notification_prefs or {},
+            "timezone": timezone,
+            "notification_preferences": notification_prefs,
         }
 
         return {
-            "employer": employer_data,
+            "user": user_data,
             "company": company_data,
+            "preferences": preferences_data,
+            # Legacy compatibility fields
+            "employer": user_data,
             "avatar_url": avatar_url,
-            "role": emp_doc.get("role") or "Viewer",
+            "role": emp_doc.get("role") or "",
             "designation": emp_doc.get("designation") or "",
-            "contact_details": contact_details,
-            "preferences": preferences,
         }
 
     # ------------------------------------------------------------------
@@ -243,11 +247,12 @@ class ProfileService:
 
     def update_profile(self, data: dict) -> dict:
         """Apply partial updates to the Employer Profile with persistence across database tables.
-        
+
         Rules:
         - Only update changed fields present in payload.
         - Do not overwrite existing values with null/None.
         - Update Employer User and sync with linked Frappe User doc.
+        - Immutable fields (email, role, company, status, user) are ignored/stripped by validator.
         """
         validated_data = self.validator.validate_update_profile(data)
         if not validated_data:
@@ -258,7 +263,7 @@ class ProfileService:
 
         # Fields mapped to Employer User DocType
         emp_fields = [
-            "first_name", "last_name", "phone", "designation",
+            "first_name", "middle_name", "last_name", "phone", "designation",
             "department", "bio", "timezone", "language", "country",
             "state", "city", "notification_preferences"
         ]
@@ -269,14 +274,17 @@ class ProfileService:
                 val = validated_data[field]
                 if field == "notification_preferences" and isinstance(val, (dict, list)):
                     val = frappe.as_json(val)
-                setattr(emp_doc, field, val)
-                emp_updated = True
+                if hasattr(emp_doc, field):
+                    setattr(emp_doc, field, val)
+                    emp_updated = True
 
-        # Re-compute full_name if first_name or last_name changed
-        if "first_name" in validated_data or "last_name" in validated_data:
+        # Re-compute full_name if first_name, middle_name, or last_name changed
+        if any(f in validated_data for f in ("first_name", "middle_name", "last_name")):
             fname = emp_doc.get("first_name") or ""
+            mname = emp_doc.get("middle_name") or ""
             lname = emp_doc.get("last_name") or ""
-            emp_doc.full_name = f"{fname} {lname}".strip()
+            parts = [p for p in [fname, mname, lname] if p]
+            emp_doc.full_name = " ".join(parts)
             emp_updated = True
 
         if emp_updated:
@@ -346,7 +354,7 @@ class ProfileService:
         ext = "." + file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
         if content_type not in ALLOWED_IMAGE_MIMES and ext not in ALLOWED_IMAGE_EXTENSIONS:
             raise ATSValidationError(
-                f"Unsupported image type '{content_type}'. Allowed types: PNG, JPG, JPEG, WEBP.",
+                f"Unsupported image type '{content_type}'. Allowed types: PNG, JPG, JPEG, WEBP, SVG.",
                 field="file",
             )
 
@@ -397,6 +405,7 @@ class ProfileService:
 
         return {
             "file_url": abs_file_url,
+            "profile_image": abs_file_url,
             "thumbnail": abs_file_url,
             "image_metadata": {
                 "name": file_doc.name,
@@ -444,5 +453,6 @@ class ProfileService:
         return {
             "file_url": None,
             "avatar": None,
+            "profile_image": None,
             "message": "Profile photo removed successfully.",
         }

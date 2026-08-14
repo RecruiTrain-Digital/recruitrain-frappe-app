@@ -59,6 +59,33 @@ def _handle_ats_exception(exc: Exception) -> dict:
 
 @frappe.whitelist()
 @employer_required
+def get_analytics(
+    company: str | None = None,
+    job_opening: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
+    """Return unified aggregate analytics payload covering all dashboard metrics."""
+    try:
+        company_val = company or frappe.form_dict.get("company")
+        job_val = job_opening or frappe.form_dict.get("job_opening")
+        from_val = from_date or frappe.form_dict.get("from_date")
+        to_val = to_date or frappe.form_dict.get("to_date")
+
+        service = AnalyticsService()
+        data = service.get_analytics(
+            company=company_val,
+            job_opening=job_val,
+            from_date=from_val,
+            to_date=to_val,
+        )
+        return success_response(data=data)
+    except Exception as exc:
+        return _handle_ats_exception(exc)
+
+
+@frappe.whitelist()
+@employer_required
 def get_overview(
     company: str | None = None,
     from_date: str | None = None,
