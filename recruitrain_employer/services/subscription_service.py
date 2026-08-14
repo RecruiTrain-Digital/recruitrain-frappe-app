@@ -18,6 +18,7 @@ import frappe
 from frappe.utils import add_days, getdate, nowdate, today
 
 from recruitrain_employer.utils.constants import (
+    DOCTYPE_BILLING_TRANSACTION,
     DOCTYPE_COMPANY,
     DOCTYPE_COMPANY_SUBSCRIPTION,
     DOCTYPE_JOB_OPENING,
@@ -389,6 +390,44 @@ class SubscriptionService:
                 "max_candidates": {"current": current_plan.max_candidates, "target": target_plan.max_candidates},
                 "storage_gb": {"current": current_plan.storage_gb, "target": target_plan.storage_gb},
             },
+        }
+
+    def get_invoices(self, company: str, limit: int = 50) -> list[dict]:
+        """Fetch billing invoices (Billing Transactions) for the company."""
+        if not company:
+            raise ATSCompanyNotFoundError("Company name is required to fetch invoices.")
+
+        txns = frappe.get_all(
+            DOCTYPE_BILLING_TRANSACTION,
+            filters={"company": company},
+            fields=[
+                "name",
+                "invoice_number",
+                "amount",
+                "currency",
+                "payment_status",
+                "stripe_payment_intent",
+                "receipt_url",
+                "paid_at",
+                "creation",
+            ],
+            order_by="creation desc",
+            limit_page_length=limit,
+        )
+        return txns
+
+    def get_payment_history(self, company: str, limit: int = 50) -> list[dict]:
+        """Fetch payment transaction history for the company."""
+        return self.get_invoices(company, limit=limit)
+
+    def get_billing_overview(self, company: str) -> dict:
+        """Fetch complete billing overview including subscription, limits, and recent invoices."""
+        usage_limits = self.get_usage_with_limits(company)
+        recent_invoices = self.get_invoices(company, limit=10)
+        return {
+            **usage_limits,
+            "recent_invoices": recent_invoices,
+            "payment_history": recent_invoices,
         }
 
     # ------------------------------------------------------------------

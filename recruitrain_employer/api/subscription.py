@@ -18,17 +18,12 @@ from recruitrain_employer.utils.response import error_response, success_response
 
 
 def _get_company_context() -> str:
-    """Helper to extract active company for current request context."""
+    """Helper to extract active company for current request context using canonical permission layer."""
     company = getattr(frappe.flags, "employer_company", None)
-    if not company and hasattr(frappe.local, "session") and frappe.session.user != "Guest":
-        company = frappe.db.get_value("Employer User", {"user": frappe.session.user}, "company")
-    if not company:
-        companies = frappe.get_all("Company", limit=1)
-        if companies:
-            company = companies[0].name
-        else:
-            company = "RecruiTrain"
-    return company
+    if company:
+        return company
+    from recruitrain_employer.utils.permissions import get_current_company
+    return get_current_company()
 
 
 @frappe.whitelist()
@@ -98,3 +93,52 @@ def upgrade_preview():
     except Exception as e:
         frappe.log_error(f"Error in upgrade_preview: {str(e)}")
         return error_response(code="INTERNAL_ERROR", message=str(e), http_status_code=500)
+
+
+@frappe.whitelist()
+@employer_required
+def get_billing_overview():
+    """Return consolidated billing overview for the authenticated company."""
+    try:
+        company = _get_company_context()
+        svc = SubscriptionService()
+        overview = svc.get_billing_overview(company)
+        return success_response(data=overview, message="Billing overview retrieved successfully.")
+    except ATSException as e:
+        return error_response(code=e.code, message=e.message, details=e.details)
+    except Exception as e:
+        frappe.log_error(f"Error in get_billing_overview: {str(e)}")
+        return error_response(code="INTERNAL_ERROR", message=str(e), http_status_code=500)
+
+
+@frappe.whitelist()
+@employer_required
+def get_invoices():
+    """Return billing invoices for the authenticated company."""
+    try:
+        company = _get_company_context()
+        svc = SubscriptionService()
+        invoices = svc.get_invoices(company)
+        return success_response(data=invoices, message="Invoices retrieved successfully.")
+    except ATSException as e:
+        return error_response(code=e.code, message=e.message, details=e.details)
+    except Exception as e:
+        frappe.log_error(f"Error in get_invoices: {str(e)}")
+        return error_response(code="INTERNAL_ERROR", message=str(e), http_status_code=500)
+
+
+@frappe.whitelist()
+@employer_required
+def get_payment_history():
+    """Return payment transaction history for the authenticated company."""
+    try:
+        company = _get_company_context()
+        svc = SubscriptionService()
+        history = svc.get_payment_history(company)
+        return success_response(data=history, message="Payment history retrieved successfully.")
+    except ATSException as e:
+        return error_response(code=e.code, message=e.message, details=e.details)
+    except Exception as e:
+        frappe.log_error(f"Error in get_payment_history: {str(e)}")
+        return error_response(code="INTERNAL_ERROR", message=str(e), http_status_code=500)
+
