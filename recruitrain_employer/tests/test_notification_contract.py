@@ -61,6 +61,7 @@ from recruitrain_employer.api.notifications import (
     create_notification,
     bulk_update_notifications,
 )
+from recruitrain_employer.utils.constants import DOCTYPE_NOTIFICATION
 from recruitrain_employer.utils.exceptions import (
     ATSPermissionError,
     ATSValidationError,
@@ -145,7 +146,9 @@ class TestNotificationContract(unittest.TestCase):
     @classmethod
     def cleanup_test_records(cls):
         prefix = "NOTIF-TEST-VERIFY-"
-        frappe.db.delete("Notification Log", {"subject": ["like", f"{prefix}%"]})
+        meta = frappe.get_meta(DOCTYPE_NOTIFICATION)
+        subj_field = "subject" if meta.has_field("subject") else "title"
+        frappe.db.delete(DOCTYPE_NOTIFICATION, {subj_field: ["like", f"{prefix}%"]})
         frappe.db.delete("Company", {"company_name": ["like", f"{prefix}%"]})
         frappe.db.commit()
 
@@ -174,7 +177,7 @@ class TestNotificationContract(unittest.TestCase):
         self.assertEqual(len(res["data"]), 1)
 
     def test_NOTIF_03_search(self):
-        """NOTIF-03: Verify search functionality across subject and message content."""
+        """NOTIF-03: Verify search functionality across title and message content."""
         res = self.service.list_notifications(
             user=self.current_user,
             company=self.current_company,
@@ -371,8 +374,9 @@ class TestNotificationContract(unittest.TestCase):
         orig_user = getattr(frappe.session, "user", "Administrator")
         try:
             frappe.session.user = "Guest"
-            with self.assertRaises(ATSPermissionError):
-                list_notifications()
+            res = list_notifications()
+            self.assertFalse(res.get("success", True))
+            self.assertEqual(res.get("error", {}).get("code"), "UNAUTHORIZED")
         finally:
             frappe.session.user = orig_user
 
@@ -499,7 +503,9 @@ class TestNotificationContract(unittest.TestCase):
     def test_NOTIF_30_test_data_hygiene(self):
         """NOTIF-30: Verify test suite tearDown leaves no residual test pollution."""
         self.cleanup_test_records()
-        remaining = frappe.db.count("Notification Log", filters={"subject": ["like", f"{self.test_prefix}%"]})
+        meta = frappe.get_meta(DOCTYPE_NOTIFICATION)
+        subj_field = "subject" if meta.has_field("subject") else "title"
+        remaining = frappe.db.count(DOCTYPE_NOTIFICATION, filters={subj_field: ["like", f"{self.test_prefix}%"]})
         self.assertEqual(remaining, 0)
 
 
