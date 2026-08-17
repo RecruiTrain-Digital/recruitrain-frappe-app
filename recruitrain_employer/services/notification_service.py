@@ -415,18 +415,28 @@ class NotificationService:
     # Notification Preferences
     # ------------------------------------------------------------------
 
-    def get_notification_preferences(self, user: str, company: str) -> dict[str, bool]:
-        """Fetch user notification preferences."""
+    def get_notification_preferences(self, user: str, company: str) -> dict[str, Any]:
+        """Fetch user notification preferences scoped to user and company context."""
         emp_user_meta = frappe.get_meta(DOCTYPE_EMPLOYER_USER)
         if not emp_user_meta.has_field("notification_preferences"):
             return dict(DEFAULT_NOTIFICATION_PREFERENCES)
 
-        emp_user = frappe.db.get_value(
-            DOCTYPE_EMPLOYER_USER,
-            {"user": user},
-            ["name", "notification_preferences"],
-            as_dict=True,
-        )
+        emp_user = None
+        if company:
+            emp_user = frappe.db.get_value(
+                DOCTYPE_EMPLOYER_USER,
+                {"user": user, "company": company},
+                ["name", "notification_preferences"],
+                as_dict=True,
+            )
+
+        if not emp_user:
+            emp_user = frappe.db.get_value(
+                DOCTYPE_EMPLOYER_USER,
+                {"user": user},
+                ["name", "notification_preferences"],
+                as_dict=True,
+            )
 
         if not emp_user:
             return dict(DEFAULT_NOTIFICATION_PREFERENCES)
@@ -453,15 +463,24 @@ class NotificationService:
         user: str,
         company: str,
         raw_preferences: dict[str, Any],
-    ) -> dict[str, bool]:
-        """Update notification preferences on Employer User record."""
+    ) -> dict[str, Any]:
+        """Update notification preferences on Employer User record with explicit MariaDB persistence."""
         validated_prefs = NotificationValidator.validate_preferences(raw_preferences)
 
-        emp_user_name = frappe.db.get_value(
-            DOCTYPE_EMPLOYER_USER,
-            {"user": user},
-            "name",
-        )
+        emp_user_name = None
+        if company:
+            emp_user_name = frappe.db.get_value(
+                DOCTYPE_EMPLOYER_USER,
+                {"user": user, "company": company},
+                "name",
+            )
+
+        if not emp_user_name:
+            emp_user_name = frappe.db.get_value(
+                DOCTYPE_EMPLOYER_USER,
+                {"user": user},
+                "name",
+            )
 
         if not emp_user_name:
             raise ATSNotFoundError(f"Employer User record not found for '{user}'.")
@@ -469,16 +488,28 @@ class NotificationService:
         current_prefs = self.get_notification_preferences(user, company)
         current_prefs.update(validated_prefs)
 
+        # Synchronize UI category keys with standard category keys
+        if "interview_reminders" in validated_prefs:
+            current_prefs["interview"] = bool(validated_prefs["interview_reminders"])
+        if "application_updates" in validated_prefs:
+            current_prefs["application"] = bool(validated_prefs["application_updates"])
+        if "offer_alerts" in validated_prefs:
+            current_prefs["offer"] = bool(validated_prefs["offer_alerts"])
+        if "candidate_updates" in validated_prefs:
+            current_prefs["candidate"] = bool(validated_prefs["candidate_updates"])
+        if "job_updates" in validated_prefs:
+            current_prefs["job"] = bool(validated_prefs["job_updates"])
+
         emp_user_meta = frappe.get_meta(DOCTYPE_EMPLOYER_USER)
         if emp_user_meta.has_field("notification_preferences"):
-            frappe.db.set_value(
-                DOCTYPE_EMPLOYER_USER,
-                emp_user_name,
-                "notification_preferences",
-                json.dumps(current_prefs),
-            )
+            emp_user_doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, emp_user_name)
+            emp_user_doc.notification_preferences = json.dumps(current_prefs)
+            emp_user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
 
-        return current_prefs
+        # Read back saved record directly from database to verify persistence
+        persisted = self.get_notification_preferences(user, company)
+        return persisted
 
     # ------------------------------------------------------------------
     # Notification Creation
