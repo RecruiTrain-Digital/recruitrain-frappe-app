@@ -40,8 +40,9 @@ Design Principles
    reason for caching exists.
 """
 
+from recruitrain_employer.services.calendar_service import CalendarService
 from recruitrain_employer.services.subscription_service import SubscriptionService, check_plan_limit
 from recruitrain_employer.services.webhook_service import WebhookService
 
-__all__ = ["SubscriptionService", "check_plan_limit", "WebhookService"]
+__all__ = ["CalendarService", "SubscriptionService", "check_plan_limit", "WebhookService"]
 
