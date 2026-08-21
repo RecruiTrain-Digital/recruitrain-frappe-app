@@ -452,6 +452,7 @@ DEFAULT_NOTIFICATION_PREFERENCES = {
     # Channels
     "in_app_notifications": True,
     "email_notifications": True,
+    "browser_push_notifications": True,
 
     # UI Modal Categories
     "interview_reminders": True,

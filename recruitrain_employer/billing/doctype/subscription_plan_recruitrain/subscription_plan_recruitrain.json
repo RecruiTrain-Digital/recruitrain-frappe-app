@@ -9,6 +9,7 @@
  "field_order": [
   "section_break_exqy",
   "plan_name",
+  "plan_code",
   "description",
   "monthly_price",
   "yearly_price",
@@ -52,6 +53,12 @@
    "label": "Plan Name",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "plan_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Plan Code / Identifier"
   },
   {
    "fieldname": "description",

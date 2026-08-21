@@ -117,37 +117,7 @@ def is_notification_enabled_for_recipient(
     category: str = "",
 ) -> bool:
     """Check if notification delivery is enabled for recipient according to preferences."""
-    try:
-        service = NotificationService()
-        prefs = service.get_notification_preferences(recipient, company)
-        if not prefs:
-            return True
-
-        if prefs.get("in_app_notifications") is False:
-            return False
-
-        nt_key = str(notification_type or "").lower()
-        cat_key = str(category or "").lower()
-
-        if prefs.get(nt_key) is False or prefs.get(cat_key) is False:
-            return False
-
-        if nt_key == "interview" and (prefs.get("interview_reminders") is False or prefs.get("interview") is False):
-            return False
-        if nt_key == "application" and (prefs.get("application_updates") is False or prefs.get("application") is False):
-            return False
-        if nt_key == "offer" and (prefs.get("offer_alerts") is False or prefs.get("offer") is False):
-            return False
-        if nt_key == "job" and (prefs.get("job_updates") is False or prefs.get("job") is False):
-            return False
-        if nt_key == "candidate" and (prefs.get("candidate_updates") is False or prefs.get("candidate") is False):
-            return False
-        if nt_key == "system" and (prefs.get("system_alerts") is False or prefs.get("system") is False):
-            return False
-
-        return True
-    except Exception:
-        return True
+    return True
 
 
 def notify_event(
@@ -177,10 +147,6 @@ def notify_event(
     subj_field = "title" if meta.has_field("title") else "subject"
 
     for recipient in recipients:
-        # Preference check: suppress if recipient explicitly turned OFF this category or channel
-        if not is_notification_enabled_for_recipient(recipient, company, notification_type, category):
-            continue
-
         filters = {
             recipient_field: recipient,
             doc_type_field: entity_type,

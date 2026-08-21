@@ -502,9 +502,13 @@ class NotificationService:
 
         emp_user_meta = frappe.get_meta(DOCTYPE_EMPLOYER_USER)
         if emp_user_meta.has_field("notification_preferences"):
-            emp_user_doc = frappe.get_doc(DOCTYPE_EMPLOYER_USER, emp_user_name)
-            emp_user_doc.notification_preferences = json.dumps(current_prefs)
-            emp_user_doc.save(ignore_permissions=True)
+            frappe.db.set_value(
+                DOCTYPE_EMPLOYER_USER,
+                emp_user_name,
+                "notification_preferences",
+                json.dumps(current_prefs),
+                update_modified=True,
+            )
             frappe.db.commit()
 
         # Read back saved record directly from database to verify persistence
@@ -601,7 +605,70 @@ class NotificationService:
         try:
             doc = frappe.get_doc(doc_dict)
             doc.insert(ignore_permissions=True)
-            return self._serialize_notification(doc.as_dict())
+            frappe.db.commit()
+            notif_id = doc.name
+            serialized = self._serialize_notification(doc.as_dict())
+
+            # Retrieve recipient preferences for independent channel evaluation & logging
+            prefs = self.get_notification_preferences(recipient, company) or {}
+
+            # Category preference check (defaults to True unless explicitly False)
+            cat_key = str(data.get("category") or data.get("notification_type") or "").lower()
+            category_enabled = prefs.get(cat_key) is not False
+            if cat_key == "interview" and prefs.get("interview_reminders") is False:
+                category_enabled = False
+            elif cat_key == "application" and prefs.get("application_updates") is False:
+                category_enabled = False
+            elif cat_key == "offer" and prefs.get("offer_alerts") is False:
+                category_enabled = False
+            elif cat_key == "candidate" and prefs.get("candidate_updates") is False:
+                category_enabled = False
+            elif cat_key == "job" and prefs.get("job_updates") is False:
+                category_enabled = False
+            elif cat_key == "system" and prefs.get("system_alerts") is False:
+                category_enabled = False
+
+            # Channel 1: In-App Socket.IO delivery
+            in_app_pref = prefs.get("in_app_notifications") is not False
+            socket_published = False
+            if in_app_pref and category_enabled:
+                try:
+                    from recruitrain_employer.utils.notification_realtime import publish_notification_realtime
+                    socket_published = publish_notification_realtime(doc)
+                except Exception as rt_exc:
+                    frappe.logger("notification_realtime").error(
+                        f"Failed to publish realtime notification for {doc.name}: {str(rt_exc)}"
+                    )
+
+            # Channel 2: Web Push delivery (dispatched independently)
+            push_pref = prefs.get("browser_push_notifications") is not False
+            push_dispatched = False
+            if push_pref and category_enabled:
+                try:
+                    from recruitrain_employer.services.push_service import send_notification_push
+                    send_notification_push(doc)
+                    push_dispatched = True
+                except Exception as push_exc:
+                    frappe.logger("web_push").error(
+                        f"Failed to dispatch web push notification for {doc.name}: {str(push_exc)}"
+                    )
+
+            # Structured [RT-EVENT] Diagnostic Log
+            event_log_msg = (
+                f"[RT-EVENT] EVENT={data.get('title')}\n"
+                f"[RT-EVENT] DOCTYPE={data.get('entity_type') or 'Notification'}\n"
+                f"[RT-EVENT] DOCUMENT={data.get('entity_id') or doc.name}\n"
+                f"[RT-EVENT] COMPANY={company}\n"
+                f"[RT-EVENT] RECIPIENT={recipient}\n"
+                f"[RT-EVENT] NOTIFICATION_CREATED={notif_id}\n"
+                f"[RT-EVENT] PREFERENCE_IN_APP={in_app_pref}\n"
+                f"[RT-EVENT] PREFERENCE_BROWSER_PUSH={push_pref}\n"
+                f"[RT-EVENT] SOCKET_PUBLISHED={socket_published}\n"
+                f"[RT-EVENT] PUSH_DISPATCHED={push_dispatched}"
+            )
+            frappe.logger("notification_service").info(event_log_msg)
+
+            return serialized
         except Exception as exc:
             raise ATSServiceError(
                 f"Failed to create notification: {str(exc)}",
