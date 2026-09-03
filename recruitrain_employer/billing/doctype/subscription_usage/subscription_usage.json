@@ -10,6 +10,8 @@
   "section_break_p6qm",
   "company",
   "company_subscription",
+  "period_start",
+  "period_end",
   "usage_section",
   "current_active_jobs",
   "current_recruiters",
@@ -35,6 +37,16 @@
    "fieldtype": "Link",
    "label": "Company Subscription",
    "options": "Company Subscription"
+  },
+  {
+   "fieldname": "period_start",
+   "fieldtype": "Date",
+   "label": "Period Start"
+  },
+  {
+   "fieldname": "period_end",
+   "fieldtype": "Date",
+   "label": "Period End"
   },
   {
    "fieldname": "usage_section",

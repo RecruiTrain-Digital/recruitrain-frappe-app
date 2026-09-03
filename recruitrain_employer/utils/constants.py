@@ -449,6 +449,28 @@ ALLOWED_NOTIFICATION_PRIORITIES = [
 ]
 
 DEFAULT_NOTIFICATION_PREFERENCES = {
+    # Channels
+    "in_app_notifications": True,
+    "email_notifications": True,
+    "browser_push_notifications": True,
+
+    # UI Modal Categories
+    "interview_reminders": True,
+    "application_updates": True,
+    "offer_alerts": True,
+    "candidate_updates": True,
+    "job_updates": True,
+    "system_alerts": True,
+
+    # Standard Domain Categories
+    "interview": True,
+    "job": True,
+    "application": True,
+    "candidate": True,
+    "offer": True,
+    "system": True,
+
+    # Granular Channel Keys
     "new_application_email": True,
     "new_application_inapp": True,
     "interview_reminder_email": True,
@@ -457,5 +479,8 @@ DEFAULT_NOTIFICATION_PREFERENCES = {
     "offer_response_inapp": True,
     "system_alerts_email": True,
     "system_alerts_inapp": True,
+
+    # Frequency
+    "digest_frequency": "realtime",
 }
 

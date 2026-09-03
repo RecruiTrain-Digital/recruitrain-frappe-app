@@ -141,8 +141,14 @@ app_license = "mit"
 doc_events = {
     "Job Opening": {
         "before_insert": "recruitrain_employer.utils.subscription_hooks.on_job_opening_before_insert",
-        "after_insert": "recruitrain_employer.utils.subscription_hooks.on_job_opening_after_insert",
-        "on_update": "recruitrain_employer.utils.subscription_hooks.on_job_opening_on_update",
+        "after_insert": [
+            "recruitrain_employer.utils.subscription_hooks.on_job_opening_after_insert",
+            "recruitrain_employer.utils.notification_hooks.on_job_opening_after_insert",
+        ],
+        "on_update": [
+            "recruitrain_employer.utils.subscription_hooks.on_job_opening_on_update",
+            "recruitrain_employer.utils.notification_hooks.on_job_opening_on_update",
+        ],
         "on_trash": "recruitrain_employer.utils.subscription_hooks.on_job_opening_on_trash",
     },
     "Employer User": {
@@ -154,7 +160,20 @@ doc_events = {
     "Candidate": {
         "before_insert": "recruitrain_employer.utils.subscription_hooks.on_candidate_before_insert",
         "after_insert": "recruitrain_employer.utils.subscription_hooks.on_candidate_after_insert",
+        "on_update": "recruitrain_employer.utils.notification_hooks.on_candidate_on_update",
         "on_trash": "recruitrain_employer.utils.subscription_hooks.on_candidate_on_trash",
+    },
+    "Interview": {
+        "after_insert": "recruitrain_employer.utils.notification_hooks.on_interview_after_insert",
+        "on_update": "recruitrain_employer.utils.notification_hooks.on_interview_on_update",
+    },
+    "Job Application": {
+        "after_insert": "recruitrain_employer.utils.notification_hooks.on_job_application_after_insert",
+        "on_update": "recruitrain_employer.utils.notification_hooks.on_job_application_on_update",
+    },
+    "Offer": {
+        "after_insert": "recruitrain_employer.utils.notification_hooks.on_offer_after_insert",
+        "on_update": "recruitrain_employer.utils.notification_hooks.on_offer_on_update",
     },
 }
 

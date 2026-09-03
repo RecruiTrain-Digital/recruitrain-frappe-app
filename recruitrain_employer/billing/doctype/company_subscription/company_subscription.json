@@ -12,13 +12,25 @@
   "subscription_plan",
   "status",
   "auto_renew",
+  "billing_interval",
+  "amount",
+  "currency",
   "start_date",
   "end_date",
   "renewal_date",
+  "current_period_start",
+  "current_period_end",
+  "started_at",
+  "ended_at",
+  "trial_start",
+  "trial_end",
+  "cancel_at_period_end",
+  "cancelled_at",
   "stripe_section",
   "stripe_customer_id",
   "stripe_subscription_id",
   "stripe_checkout_session",
+  "stripe_checkout_session_id",
   "stripe_payment_intent",
   "last_payment_date",
   "next_billing_date",
@@ -49,7 +61,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Trial\nActive\nPast Due\nCancelled\nExpired\nPaused",
+   "options": "Pending\nActive\nTrialing\nPast Due\nCancelled\nExpired\nIncomplete\npending\nactive\ntrialing\npast_due\ncancelled\nexpired\nincomplete\nTrial\nPaused",
    "reqd": 1
   },
   {
@@ -57,6 +69,23 @@
    "fieldname": "auto_renew",
    "fieldtype": "Check",
    "label": "Auto Renew"
+  },
+  {
+   "fieldname": "billing_interval",
+   "fieldtype": "Select",
+   "label": "Billing Interval",
+   "options": "monthly\nyearly\ntrial\nMonthly\nYearly"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
   },
   {
    "fieldname": "start_date",
@@ -73,6 +102,47 @@
    "fieldname": "renewal_date",
    "fieldtype": "Date",
    "label": "Renewal Date"
+  },
+  {
+   "fieldname": "current_period_start",
+   "fieldtype": "Datetime",
+   "label": "Current Period Start"
+  },
+  {
+   "fieldname": "current_period_end",
+   "fieldtype": "Datetime",
+   "label": "Current Period End"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At"
+  },
+  {
+   "fieldname": "trial_start",
+   "fieldtype": "Datetime",
+   "label": "Trial Start"
+  },
+  {
+   "fieldname": "trial_end",
+   "fieldtype": "Datetime",
+   "label": "Trial End"
+  },
+  {
+   "default": "0",
+   "fieldname": "cancel_at_period_end",
+   "fieldtype": "Check",
+   "label": "Cancel At Period End"
+  },
+  {
+   "fieldname": "cancelled_at",
+   "fieldtype": "Datetime",
+   "label": "Cancelled At"
   },
   {
    "fieldname": "stripe_section",
@@ -95,6 +165,11 @@
    "label": "Stripe Checkout Session"
   },
   {
+   "fieldname": "stripe_checkout_session_id",
+   "fieldtype": "Data",
+   "label": "Stripe Checkout Session ID"
+  },
+  {
    "fieldname": "stripe_payment_intent",
    "fieldtype": "Data",
    "label": "Stripe Payment Intent"
@@ -113,8 +188,7 @@
    "fieldname": "billing_cycle",
    "fieldtype": "Select",
    "label": "Billing Cycle",
-   "options": "Monthly\nYearly\nTrial",
-   "reqd": 1
+   "options": "Monthly\nYearly\nTrial"
   }
  ],
  "grid_page_length": 50,

@@ -294,12 +294,32 @@ class SubscriptionService:
             "company": company,
             "subscription": {
                 "name": sub_doc.name,
+                "company": company,
+                "subscription_plan": plan_doc.plan_name,
                 "plan": plan_doc.plan_name,
                 "status": sub_doc.status,
                 "start_date": str(sub_doc.start_date),
                 "end_date": str(sub_doc.end_date) if sub_doc.end_date else None,
                 "billing_cycle": sub_doc.billing_cycle,
                 "auto_renew": sub_doc.auto_renew,
+            },
+            "limits": {
+                "max_active_jobs": plan_doc.max_active_jobs,
+                "max_recruiters": plan_doc.max_recruiters,
+                "max_candidates": plan_doc.max_candidates,
+                "storage_gb": plan_doc.storage_gb,
+                "monthly_email_limit": plan_doc.monthly_email_limit,
+                "monthly_sms_limit": plan_doc.monthly_sms_limit,
+                "ai_credits": plan_doc.ai_credits,
+            },
+            "usage": {
+                "current_active_jobs": usage_doc.current_active_jobs,
+                "current_recruiters": usage_doc.current_recruiters,
+                "current_candidates": usage_doc.current_candidates,
+                "storage_used_gb": usage_doc.storage_used_gb,
+                "email_used": usage_doc.email_used,
+                "sms_used": usage_doc.sms_used,
+                "ai_credits_used": usage_doc.ai_credits_used,
             },
             "quotas": {
                 "active_jobs": {
@@ -429,6 +449,65 @@ class SubscriptionService:
             "recent_invoices": recent_invoices,
             "payment_history": recent_invoices,
         }
+
+    def cancel_subscription(self, company: str, at_period_end: bool = True) -> dict:
+        """Cancel subscription for company by interacting with Stripe server-side."""
+        from recruitrain_employer.services.stripe_service import StripeService
+        sub_doc = self.get_active_subscription(company)
+        stripe_sub_id = getattr(sub_doc, "stripe_subscription_id", None)
+
+        if stripe_sub_id:
+            StripeService().cancel_subscription(stripe_sub_id, at_period_end=at_period_end)
+
+        sub_doc.cancel_at_period_end = 1 if at_period_end else 0
+        if not at_period_end:
+            sub_doc.status = "Cancelled"
+            sub_doc.cancelled_at = frappe.utils.now_datetime()
+        sub_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "company": company,
+            "subscription": sub_doc.name,
+            "status": sub_doc.status,
+            "cancel_at_period_end": sub_doc.cancel_at_period_end,
+            "message": "Subscription cancelled successfully."
+        }
+
+    def resume_subscription(self, company: str) -> dict:
+        """Resume a pending cancelled subscription for company by interacting with Stripe server-side."""
+        from recruitrain_employer.services.stripe_service import StripeService
+        sub_doc = self.get_active_subscription(company)
+        stripe_sub_id = getattr(sub_doc, "stripe_subscription_id", None)
+
+        if stripe_sub_id:
+            StripeService().resume_subscription(stripe_sub_id)
+
+        sub_doc.cancel_at_period_end = 0
+        if sub_doc.status == "Cancelled":
+            sub_doc.status = "Active"
+        sub_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "company": company,
+            "subscription": sub_doc.name,
+            "status": sub_doc.status,
+            "cancel_at_period_end": sub_doc.cancel_at_period_end,
+            "message": "Subscription resumed successfully."
+        }
+
+    def can_create_job(self, company: str) -> bool:
+        """Check if company can create a new job opening based on plan limits."""
+        return self.validate_quota(company, "active_jobs")
+
+    def can_add_candidate(self, company: str) -> bool:
+        """Check if company can add a candidate based on plan limits."""
+        return self.validate_quota(company, "candidates")
+
+    def can_add_employer_user(self, company: str) -> bool:
+        """Check if company can add an employer recruiter user based on plan limits."""
+        return self.validate_quota(company, "recruiters")
 
     # ------------------------------------------------------------------
     # Private Helper Methods

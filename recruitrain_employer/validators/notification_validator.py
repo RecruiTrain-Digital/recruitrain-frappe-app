@@ -226,7 +226,7 @@ class NotificationValidator:
         }
 
     @staticmethod
-    def validate_preferences(preferences: dict[str, Any]) -> dict[str, bool]:
+    def validate_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
         """Validate user notification preference dictionary.
 
         Parameters
@@ -237,7 +237,7 @@ class NotificationValidator:
         Returns
         -------
         dict
-            Sanitised dictionary mapping setting keys to booleans.
+            Sanitised dictionary mapping setting keys to booleans or strings.
 
         Raises
         ------
@@ -247,7 +247,7 @@ class NotificationValidator:
         if not isinstance(preferences, dict):
             raise ATSValidationError("Preferences payload must be a JSON object.")
 
-        sanitised: dict[str, bool] = {}
+        sanitised: dict[str, Any] = {}
         for key, val in preferences.items():
             if not isinstance(key, str):
                 continue
@@ -257,5 +257,7 @@ class NotificationValidator:
                 sanitised[key] = True
             elif str(val).lower() in ("false", "0", "no"):
                 sanitised[key] = False
+            elif isinstance(val, str):
+                sanitised[key] = val.strip()
 
         return sanitised

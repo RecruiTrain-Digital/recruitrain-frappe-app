@@ -6,15 +6,21 @@ recruitrain_employer.api.subscription
 ========================================
 
 REST API Endpoints for Subscription, Usage, and Plan Entitlements.
+Delegates to recruitrain_employer.api.billing and SubscriptionService.
 """
 
 from __future__ import annotations
 
 import frappe
 from recruitrain_employer.services.subscription_service import SubscriptionService
-from recruitrain_employer.utils.permissions import employer_required
+from recruitrain_employer.utils.permissions import employer_required, get_current_company
 from recruitrain_employer.utils.exceptions import ATSException
 from recruitrain_employer.utils.response import error_response, success_response
+from recruitrain_employer.api.billing import (
+    create_checkout_session as _create_checkout_session,
+    cancel_subscription as _cancel_subscription,
+    resume_subscription as _resume_subscription,
+)
 
 
 def _get_company_context() -> str:
@@ -22,7 +28,6 @@ def _get_company_context() -> str:
     company = getattr(frappe.flags, "employer_company", None)
     if company:
         return company
-    from recruitrain_employer.utils.permissions import get_current_company
     return get_current_company()
 
 
@@ -142,3 +147,23 @@ def get_payment_history():
         frappe.log_error(f"Error in get_payment_history: {str(e)}")
         return error_response(code="INTERNAL_ERROR", message=str(e), http_status_code=500)
 
+
+@frappe.whitelist()
+@employer_required
+def create_checkout_session():
+    """Create a Stripe Checkout Session for plan upgrade."""
+    return _create_checkout_session()
+
+
+@frappe.whitelist()
+@employer_required
+def cancel_subscription():
+    """Cancel subscription for authenticated company."""
+    return _cancel_subscription()
+
+
+@frappe.whitelist()
+@employer_required
+def resume_subscription():
+    """Resume a pending cancelled subscription for authenticated company."""
+    return _resume_subscription()
